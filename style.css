@@ -21,7 +21,7 @@ canvas {
   touch-action: manipulation;
   cursor: pointer;
 }
-.controls { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+.controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 10px; }
 .controls button {
   font: inherit;
   font-weight: 600;

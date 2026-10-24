@@ -81,6 +81,8 @@
   // ?level=2 / ?level=3 jumps straight to a level
   let level = Math.min(LEVELS.length, Math.max(1, parseInt(new URLSearchParams(location.search).get('level'), 10) || 1)) - 1;
   let cfg;
+  let god = false;              // god mode: sun stays maxed and zombies that reach the house are wiped out instead of ending the game
+  const SUN_MAX = 9990;
 
   function reset() {
     cfg = LEVELS[level];
@@ -124,6 +126,7 @@
   // ---------- update ----------
   function update(dt) {
     time += dt;
+    if (god) sun = SUN_MAX;
 
     for (const k of ORDER) cdLeft[k] = Math.max(0, cdLeft[k] - dt);
 
@@ -312,7 +315,7 @@
       if (z.x < GX - 15) {
         const m = mowers[z.row];
         if (!m.gone && !m.active) m.active = true;
-        else if (m.gone && z.x < GX - 60) { state = 'lost'; }
+        else if (m.gone && z.x < GX - 60) { if (god) z.hp = 0; else state = 'lost'; }
       }
     }
     for (const m of mowers) {
@@ -738,7 +741,7 @@
     ctx.fillStyle = '#e53935'; ctx.fillRect(fx0, by - 10, 2, 12); ctx.fillRect(fx0, by - 10, 10, 6);
     circle(bx + 2 + (bw - 4) * prog, by + bh / 2, 7, '#9bbf86', '#4f6b3f');
     ctx.fillStyle = '#e8d9b0'; ctx.font = '12px system-ui'; ctx.textAlign = 'center';
-    ctx.fillText('Level ' + (level + 1) + ' of ' + LEVELS.length, bx + bw / 2, by + 38);
+    ctx.fillText('Level ' + (level + 1) + ' of ' + LEVELS.length + (god ? ' · GOD MODE' : ''), bx + bw / 2, by + 38);
   }
 
   function drawGhost() {
@@ -843,6 +846,8 @@
   const btnPause = document.getElementById('btn-pause');
   const btnSpeed = document.getElementById('btn-speed');
   const btnRestart = document.getElementById('btn-restart');
+  const btnGod = document.getElementById('btn-god');
+  btnGod.addEventListener('click', () => { god = !god; if (god) sun = SUN_MAX; });
 
   function syncButtons() {
     const pauseText = state === 'paused' ? 'Resume' : 'Pause';
@@ -851,6 +856,9 @@
     const speedText = speed === 2 ? '2× Speed: ON' : '2× Speed';
     if (btnSpeed.textContent !== speedText) btnSpeed.textContent = speedText;
     btnSpeed.classList.toggle('on', speed === 2);
+    const godText = god ? 'God mode: ON' : 'God mode';
+    if (btnGod.textContent !== godText) btnGod.textContent = godText;
+    btnGod.classList.toggle('on', god);
   }
 
   btnPause.addEventListener('click', () => {
