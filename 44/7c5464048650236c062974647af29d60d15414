@@ -1,0 +1,21 @@
+game.js
+  s_6a130fffb65bd6::t_aabfbdf13f3ca9 61
+  s_6a130fffb65bd6::t_f4c6d455ba8e98 129
+  s_6a130fffb65bd6::t_b5d4b4253906ee 404
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "447c5464048650236c062974647af29d60d15414",
+  "prompts": {},
+  "sessions": {
+    "s_6a130fffb65bd6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7535a1b9-996f-4836-91b9-fc5ec668c795",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "scott pederson <scpe@users.noreply.github.com>"
+    }
+  }
+}
