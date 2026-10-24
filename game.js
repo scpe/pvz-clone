@@ -5,6 +5,7 @@
   const COLS = 9, ROWS = 5, CW = 80, CH = 100, GX = 120, GY = 110, W = 900, H = 620;
   const DURATION = 210;        // seconds until the last zombie has spawned
   const FLAG_AT = 170;         // seconds when the big final wave arrives
+  const GARG_AT = 190;         // seconds when the Gargantuar shows up
 
   const PLANTS = {
     sunflower: { name: 'Sunflower', cost: 50,  cd: 5,  hp: 300 },
@@ -32,13 +33,16 @@
   const canMerge = (sel, existing) => !!mergeResult(sel, existing);
 
   const ZOMBIES = {
-    normal: { hp: 200,  speed: 20 },
-    cone:   { hp: 560,  speed: 20 },
-    bucket: { hp: 1300, speed: 20 },
+    normal: { hp: 260,  speed: 14 },
+    cone:   { hp: 700,  speed: 14 },
+    bucket: { hp: 1600, speed: 14 },
+    garg:   { hp: 3200, speed: 11 },   // twice a buckethead
   };
+  const GARG_SMASH_EVERY = 1.4;        // seconds between club swings
+  const WALLNUT_SMASH_DMG = 1000;      // a wall-nut survives a few smashes; everything else dies in one
 
   let state, sun, plants, zombies, peas, suns, mowers, fx, cdLeft;
-  let selected, shovel, time, spawnTimer, skyTimer, flagDone, mouse, last;
+  let selected, shovel, time, spawnTimer, skyTimer, flagDone, gargDone, mouse, last;
 
   function reset() {
     state = 'menu';
@@ -49,7 +53,7 @@
     cdLeft = {};
     ORDER.forEach(k => (cdLeft[k] = 0));
     selected = null; shovel = false;
-    time = 0; spawnTimer = 15; skyTimer = 6; flagDone = false;
+    time = 0; spawnTimer = 15; skyTimer = 6; flagDone = false; gargDone = false;
     mouse = { x: -1, y: -1 };
   }
 
@@ -58,11 +62,12 @@
   const rand = (a, b) => a + Math.random() * (b - a);
 
   // ---------- spawning ----------
-  function spawnZombie(row) {
+  function spawnZombie(row, forcedKind) {
     const f = time / DURATION;
     const roll = Math.random();
-    let kind = 'normal';
-    if (f > 0.45 && roll < (f - 0.35) * 0.5) kind = 'bucket';
+    let kind = forcedKind || 'normal';
+    if (forcedKind) { /* keep it */ }
+    else if (f > 0.45 && roll < (f - 0.35) * 0.5) kind = 'bucket';
     else if (f > 0.15 && roll < 0.2 + f * 0.4) kind = 'cone';
     const z = ZOMBIES[kind];
     zombies.push({
@@ -91,6 +96,11 @@
       flagDone = true;
       for (let i = 0; i < 8; i++) setTimeout(() => state === 'play' && spawnZombie(i % ROWS), i * 500);
       fx.push({ type: 'text', text: 'A HUGE WAVE OF ZOMBIES IS APPROACHING!', t: 0, life: 4 });
+    }
+    if (!gargDone && time >= GARG_AT) {
+      gargDone = true;
+      spawnZombie(undefined, 'garg');
+      fx.push({ type: 'text', text: 'A GARGANTUAR IS COMING!', t: 0, life: 4 });
     }
 
     // sky sun
@@ -165,6 +175,16 @@
         target.hp = 0;
         z.freeze = 4;
         fx.push({ type: 'splat', x: z.x, y: cellY(z.row) - 20, t: 0, life: 0.4, snow: true });
+      } else if (target && z.kind === 'garg') {
+        // winds up, then smashes: anything but a wall-nut dies in one hit
+        z.anim += dt * 4;
+        z.eating = true;
+        z.atk = (z.atk || 0) + factor * dt;
+        if (z.atk >= GARG_SMASH_EVERY) {
+          z.atk = 0;
+          target.hp -= target.type === 'wallnut' ? WALLNUT_SMASH_DMG : 1e6;
+          fx.push({ type: 'boom', x: cellX(col), y: cellY(z.row) + 20, t: 0, life: 0.25 });
+        }
       } else if (target) {
         z.anim += dt * 4;
         target.hp -= 100 * factor * dt;
@@ -172,6 +192,7 @@
       } else {
         z.anim += dt * 4;
         z.eating = false;
+        z.atk = 0;
         z.x -= ZOMBIES[z.kind].speed * factor * dt;
       }
       // lawn mower / house
@@ -367,14 +388,16 @@
   function drawZombie(z) {
     const cx = z.x, cy = cellY(z.row) + 8;
     const sw = Math.sin(z.anim) * 6;
+    const garg = z.kind === 'garg';
     ctx.save();
+    if (garg) { ctx.translate(cx, cy + 48); ctx.scale(1.6, 1.6); ctx.translate(-cx, -(cy + 48)); }
     if (z.slow > 0) ctx.globalAlpha = 0.92;
     // legs
     ctx.fillStyle = '#4a4a6a';
     ctx.fillRect(cx - 12, cy + 18, 9, 30 + sw * (z.eating ? 0 : 0.6));
     ctx.fillRect(cx + 3, cy + 18, 9, 30 - sw * (z.eating ? 0 : 0.6));
     // body
-    ctx.fillStyle = '#6b6b8f'; ctx.fillRect(cx - 16, cy - 22, 32, 44);
+    ctx.fillStyle = garg ? '#8a4b3a' : '#6b6b8f'; ctx.fillRect(cx - 16, cy - 22, 32, 44);
     ctx.fillStyle = '#c0392b'; ctx.fillRect(cx - 3, cy - 20, 6, 24);   // tie
     // arms (reach forward / left)
     ctx.fillStyle = '#8fae78';
@@ -398,11 +421,23 @@
       ctx.strokeStyle = '#5c6670'; ctx.stroke();
       ctx.fillStyle = '#5c6670'; ctx.fillRect(cx - 19, cy - 44, 38, 5);
     }
+    if (garg) {   // club: raised behind while winding up, swung forward on the smash
+      const a = Math.min(1, (z.atk || 0) / GARG_SMASH_EVERY);
+      const ang = z.eating ? 0.9 - 2.1 * a * a : 0.5 + Math.sin(z.anim) * 0.08;
+      ctx.save(); ctx.translate(cx - 30, cy - 8); ctx.rotate(ang);
+      ctx.fillStyle = '#6b4a2a'; ctx.fillRect(-4, -52, 8, 52);
+      ctx.fillStyle = '#4a3220'; ctx.fillRect(-9, -72, 18, 24);
+      ctx.restore();
+    }
     if (z.freeze > 0) {
       ctx.fillStyle = 'rgba(150,220,255,0.6)'; ctx.fillRect(cx - 42, cy - 80, 84, 132);
       ctx.strokeStyle = '#e8f8ff'; ctx.lineWidth = 3; ctx.strokeRect(cx - 42, cy - 80, 84, 132);
     } else if (z.slow > 0) { ctx.fillStyle = 'rgba(120,200,255,0.35)'; ctx.fillRect(cx - 40, cy - 78, 80, 128); }
     ctx.restore();
+    if (garg) {
+      ctx.fillStyle = '#2b1d10'; ctx.fillRect(cx - 32, cy - 128, 64, 8);
+      ctx.fillStyle = '#e53935'; ctx.fillRect(cx - 31, cy - 127, 62 * Math.max(0, z.hp / z.maxhp), 6);
+    }
   }
 
   function drawSun(s) {
