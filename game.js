@@ -9,11 +9,17 @@
   const PLANTS = {
     sunflower: { name: 'Sunflower', cost: 50,  cd: 5,  hp: 300 },
     peashooter: { name: 'Peashooter', cost: 100, cd: 5,  hp: 300 },
-    snowpea:   { name: 'Snow Pea',  cost: 175, cd: 5,  hp: 300 },
+    lettuce:   { name: 'Iceberg', cost: 75, cd: 12, hp: 300 },
+    snowpea:   { name: 'Snow Pea',  cost: 175, cd: 5,  hp: 300 },   // merge-only (lettuce + peashooter)
     wallnut:   { name: 'Wall-nut',  cost: 50,  cd: 20, hp: 4000 },
     cherry:    { name: 'Cherry', cost: 150, cd: 30, hp: 300 },
   };
-  const ORDER = ['sunflower', 'peashooter', 'snowpea', 'wallnut', 'cherry'];
+  const ORDER = ['sunflower', 'peashooter', 'lettuce', 'wallnut', 'cherry'];
+
+  // merging is symmetric: dropping either one on the other makes a snow pea
+  const canMerge = (sel, existing) => !!existing && (
+    (sel === 'lettuce' && existing.type === 'peashooter') ||
+    (sel === 'peashooter' && existing.type === 'lettuce'));
 
   const ZOMBIES = {
     normal: { hp: 200,  speed: 20 },
@@ -51,7 +57,7 @@
     const z = ZOMBIES[kind];
     zombies.push({
       kind, row: row ?? Math.floor(Math.random() * ROWS),
-      x: W + 20, hp: z.hp, maxhp: z.hp, slow: 0, anim: Math.random() * 6,
+      x: W + 20, hp: z.hp, maxhp: z.hp, slow: 0, freeze: 0, anim: Math.random() * 6,
     });
   }
 
@@ -131,15 +137,24 @@
 
     // zombies
     for (const z of zombies) {
-      z.anim += dt * 4;
       z.slow = Math.max(0, z.slow - dt);
       const factor = z.slow > 0 ? 0.5 : 1;
       const col = Math.floor((z.x - 20 - GX) / CW);
       const target = col >= 0 && col < COLS ? plants[z.row][col] : null;
-      if (target) {
+      if (z.freeze > 0) {
+        z.freeze -= dt;
+        z.eating = false;
+      } else if (target && target.type === 'lettuce') {
+        // biting iceberg lettuce freezes the zombie solid and uses the lettuce up
+        target.hp = 0;
+        z.freeze = 4;
+        fx.push({ type: 'splat', x: z.x, y: cellY(z.row) - 20, t: 0, life: 0.4, snow: true });
+      } else if (target) {
+        z.anim += dt * 4;
         target.hp -= 100 * factor * dt;
         z.eating = true;
       } else {
+        z.anim += dt * 4;
         z.eating = false;
         z.x -= ZOMBIES[z.kind].speed * factor * dt;
       }
@@ -218,12 +233,20 @@
     const c = Math.floor((p.x - GX) / CW), r = Math.floor((p.y - GY) / CH);
     if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
     if (shovel) { plants[r][c] = null; shovel = false; return; }
-    if (!selected || plants[r][c]) return;
+    if (!selected) return;
+    const existing = plants[r][c];
+    const merge = canMerge(selected, existing);
+    if (existing && !merge) return;
     const def = PLANTS[selected];
     if (sun < def.cost || cdLeft[selected] > 0) return;
     sun -= def.cost;
     cdLeft[selected] = def.cd;
-    plants[r][c] = { type: selected, hp: def.hp, t: selected === 'sunflower' ? 3 : 0, anim: 0 };
+    if (merge) {
+      plants[r][c] = { type: 'snowpea', hp: PLANTS.snowpea.hp, t: existing.type === 'peashooter' ? existing.t : 0, anim: existing.anim };
+      fx.push({ type: 'splat', x: cellX(c), y: cellY(r) - 10, t: 0, life: 0.5, snow: true });
+    } else {
+      plants[r][c] = { type: selected, hp: def.hp, t: selected === 'sunflower' ? 3 : 0, anim: 0 };
+    }
     selected = null;
   });
 
@@ -273,6 +296,19 @@
       circle(cx, cy - 14 + bob, 20, body, dark);
       circle(cx + 5, cy - 20 + bob, 5, '#fff'); circle(cx + 7, cy - 20 + bob, 2.4, '#000');
       ellipse(cx - 18, cy - 20 + bob, 9, 5, dark, -0.8);
+    } else if (type === 'lettuce') {
+      ellipse(cx, cy + 30, 24, 7, 'rgba(0,0,0,0.15)');
+      const leaves = ['#b9dc8f', '#cfe9a8', '#dff3c2'];
+      for (let i = 0; i < 3; i++) {
+        circle(cx + (i - 1) * 9, cy + 6 + Math.abs(i - 1) * 6 + bob * 0.3, 24 - i * 3, leaves[i], '#7fa856');
+      }
+      ctx.strokeStyle = '#8fb865'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(cx, cy + 4, 14, 3.6, 5.8); ctx.stroke();
+      circle(cx - 7, cy + 2, 4, '#fff'); circle(cx + 7, cy + 2, 4, '#fff');
+      circle(cx - 6, cy + 3, 1.8, '#000'); circle(cx + 8, cy + 3, 1.8, '#000');
+      ctx.strokeStyle = '#4a6b2f'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(cx, cy + 9, 5, 0.2, Math.PI - 0.2); ctx.stroke();
+      ctx.fillStyle = '#bfeaff'; ctx.fillRect(cx + 14, cy - 12, 3, 3); ctx.fillRect(cx - 18, cy - 4, 3, 3);
     } else if (type === 'wallnut') {
       const frac = p ? p.hp / PLANTS.wallnut.hp : 1;
       ellipse(cx, cy + 4, 30, 38, '#c68a3c');
@@ -330,7 +366,10 @@
       ctx.strokeStyle = '#5c6670'; ctx.stroke();
       ctx.fillStyle = '#5c6670'; ctx.fillRect(cx - 19, cy - 44, 38, 5);
     }
-    if (z.slow > 0) { ctx.fillStyle = 'rgba(120,200,255,0.35)'; ctx.fillRect(cx - 40, cy - 78, 80, 128); }
+    if (z.freeze > 0) {
+      ctx.fillStyle = 'rgba(150,220,255,0.6)'; ctx.fillRect(cx - 42, cy - 80, 84, 132);
+      ctx.strokeStyle = '#e8f8ff'; ctx.lineWidth = 3; ctx.strokeRect(cx - 42, cy - 80, 84, 132);
+    } else if (z.slow > 0) { ctx.fillStyle = 'rgba(120,200,255,0.35)'; ctx.fillRect(cx - 40, cy - 78, 80, 128); }
     ctx.restore();
   }
 
@@ -421,10 +460,11 @@
       ctx.fillStyle = 'rgba(255,60,60,0.25)'; ctx.fillRect(GX + c * CW, GY + r * CH, CW, CH); return;
     }
     if (!selected) return;
-    const ok = !plants[r][c];
-    ctx.fillStyle = ok ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.2)';
+    const merge = canMerge(selected, plants[r][c]);
+    const ok = !plants[r][c] || merge;
+    ctx.fillStyle = merge ? 'rgba(120,200,255,0.4)' : ok ? 'rgba(255,255,255,0.2)' : 'rgba(255,0,0,0.2)';
     ctx.fillRect(GX + c * CW, GY + r * CH, CW, CH);
-    if (ok) { ctx.save(); ctx.globalAlpha = 0.5; drawPlant(selected, cellX(c), cellY(r), null); ctx.restore(); }
+    if (ok && !merge) { ctx.save(); ctx.globalAlpha = 0.5; drawPlant(selected, cellX(c), cellY(r), null); ctx.restore(); }
   }
 
   function drawFx() {
@@ -494,7 +534,5 @@
   }
 
   reset();
-  // tiny hook so the game can be driven/inspected from the console or tests
-  window.__pvz = { get state() { return state; }, get sun() { return sun; }, get zombies() { return zombies.length; }, start() { state = 'play'; } };
   requestAnimationFrame(t => { last = t; frame(t); });
 })();
