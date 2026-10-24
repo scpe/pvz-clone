@@ -16,6 +16,7 @@
     repeater:  { name: 'Repeater',  cost: 200, cd: 5,  hp: 300 },
     peanut:    { name: 'Pea-nut',   cost: 150, cd: 5,  hp: 1000 },   // a quarter of a wall-nut's health
     sunpea:    { name: 'Sun Pea',   cost: 150, cd: 5,  hp: 300 },
+    threepeater: { name: 'Threepeater', cost: 300, cd: 5, hp: 300 },
     wallnut:   { name: 'Wall-nut',  cost: 50,  cd: 20, hp: 4000 },
     cherry:    { name: 'Cherry', cost: 150, cd: 30, hp: 300 },
   };
@@ -27,8 +28,9 @@
     'peashooter+peashooter': 'repeater',
     'peashooter+wallnut': 'peanut',
     'peashooter+sunflower': 'sunpea',
+    'peashooter+repeater': 'threepeater',
   };
-  const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea'];
+  const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater'];
   const mergeResult = (sel, existing) => existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
   const canMerge = (sel, existing) => !!mergeResult(sel, existing);
 
@@ -123,11 +125,19 @@
         } else if (SHOOTERS.includes(p.type)) {
           p.t = Math.min(1.4, p.t + dt);
           const cx = cellX(c);
-          if (p.queue > 0 && (p.queue -= dt) <= 0) peas.push({ row: r, x: cx + 28, snow: false });  // repeater's 2nd pea
-          if (p.t >= 1.4 && zombies.some(z => z.row === r && z.x > cx - 10 && z.x < W)) {
+          if (p.pending) {   // follow-up peas of a burst (repeater / lane-form threepeater)
+            for (const q of p.pending) q.t -= dt;
+            for (const q of p.pending) if (q.t <= 0) peas.push({ row: q.row, x: cx + 28, snow: false });
+            p.pending = p.pending.filter(q => q.t > 0);
+          }
+          const spread = p.type === 'threepeater' && p.spread;
+          const lanes = spread ? [r - 1, r, r + 1].filter(l => l >= 0 && l < ROWS) : [r];
+          if (p.t >= 1.4 && zombies.some(z => lanes.includes(z.row) && z.x > cx - 10 && z.x < W)) {
             p.t = 0;
-            peas.push({ row: r, x: cx + 28, snow: p.type === 'snowpea' });
-            if (p.type === 'repeater') p.queue = 0.15;
+            if (spread) lanes.forEach(l => peas.push({ row: l, x: cx + 28, snow: false }));
+            else peas.push({ row: r, x: cx + 28, snow: p.type === 'snowpea' });
+            if (p.type === 'repeater') p.pending = [{ row: r, t: 0.15 }];
+            if (p.type === 'threepeater' && !spread) p.pending = [{ row: r, t: 0.15 }, { row: r, t: 0.3 }];
             if (p.type === 'sunpea') {
               sun += 10;
               fx.push({ type: 'plus', x: cx, y: cellY(r) - 50, t: 0, life: 0.9 });
@@ -270,6 +280,13 @@
     const c = Math.floor((p.x - GX) / CW), r = Math.floor((p.y - GY) / CH);
     if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
     if (shovel) { plants[r][c] = null; shovel = false; return; }
+    if (!selected && plants[r][c] && plants[r][c].type === 'threepeater') {
+      // click toggles between triple-shot-in-one-lane and one-pea-in-each-of-three-lanes
+      plants[r][c].spread = !plants[r][c].spread;
+      plants[r][c].pending = [];
+      fx.push({ type: 'splat', x: cellX(c), y: cellY(r) - 10, t: 0, life: 0.4, snow: false });
+      return;
+    }
     if (!selected) return;
     const existing = plants[r][c];
     const merge = canMerge(selected, existing);
@@ -342,6 +359,19 @@
       ellipse(cx - 18, cy - 20 + bob, 9, 5, dark, -0.8);
       if (rep) { ctx.strokeStyle = '#173a15'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx - 2, cy - 28 + bob); ctx.lineTo(cx + 12, cy - 24 + bob); ctx.stroke(); }
       if (sunp) circle(cx - 8, cy - 8 + bob, 4, '#ffe45e');
+    } else if (type === 'threepeater') {
+      const spread = !!(p && p.spread);
+      // lane form: three heads side by side, all aimed straight; spread form: stacked and fanned across three lanes
+      const heads = spread ? [[0, -33, -0.4], [6, -5, 0], [0, 23, 0.4]] : [[-26, -14, 0], [-6, -14, 0], [14, -14, 0]];
+      ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx - 3, cy - (spread ? 33 : 5) + bob, 6, spread ? 68 : 38);
+      ellipse(cx - 14, cy + 22, 14, 6, '#3c9a40', -0.4); ellipse(cx + 12, cy + 26, 10, 5, '#3c9a40', 0.4);
+      for (const [hx, hy, a] of heads) {
+        ctx.save(); ctx.translate(cx + hx, cy + hy + bob); ctx.rotate(a);
+        ctx.fillStyle = '#1f7a2a'; ctx.fillRect(8, -8, 16, 12); ellipse(24, -2, 3.5, 7, '#1f7a2a'); ellipse(24, -2, 1.8, 4, '#173a15');
+        circle(0, 0, 14, '#35b341', '#1f7a2a');
+        circle(3, -5, 4, '#fff'); circle(4.5, -5, 1.8, '#000');
+        ctx.restore();
+      }
     } else if (type === 'lettuce') {
       ellipse(cx, cy + 30, 24, 7, 'rgba(0,0,0,0.15)');
       const leaves = ['#b9dc8f', '#cfe9a8', '#dff3c2'];
