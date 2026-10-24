@@ -10,16 +10,26 @@
     sunflower: { name: 'Sunflower', cost: 50,  cd: 5,  hp: 300 },
     peashooter: { name: 'Peashooter', cost: 100, cd: 5,  hp: 300 },
     lettuce:   { name: 'Iceberg', cost: 75, cd: 12, hp: 300 },
-    snowpea:   { name: 'Snow Pea',  cost: 175, cd: 5,  hp: 300 },   // merge-only (lettuce + peashooter)
+    // merge-only plants (see MERGES); cost/cd are unused since they can't be bought
+    snowpea:   { name: 'Snow Pea',  cost: 175, cd: 5,  hp: 300 },
+    repeater:  { name: 'Repeater',  cost: 200, cd: 5,  hp: 300 },
+    peanut:    { name: 'Pea-nut',   cost: 150, cd: 5,  hp: 1000 },   // a quarter of a wall-nut's health
+    sunpea:    { name: 'Sun Pea',   cost: 150, cd: 5,  hp: 300 },
     wallnut:   { name: 'Wall-nut',  cost: 50,  cd: 20, hp: 4000 },
     cherry:    { name: 'Cherry', cost: 150, cd: 30, hp: 300 },
   };
   const ORDER = ['sunflower', 'peashooter', 'lettuce', 'wallnut', 'cherry'];
 
   // merging is symmetric: dropping either one on the other makes a snow pea
-  const canMerge = (sel, existing) => !!existing && (
-    (sel === 'lettuce' && existing.type === 'peashooter') ||
-    (sel === 'peashooter' && existing.type === 'lettuce'));
+  const MERGES = {
+    'lettuce+peashooter': 'snowpea',
+    'peashooter+peashooter': 'repeater',
+    'peashooter+wallnut': 'peanut',
+    'peashooter+sunflower': 'sunpea',
+  };
+  const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea'];
+  const mergeResult = (sel, existing) => existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
+  const canMerge = (sel, existing) => !!mergeResult(sel, existing);
 
   const ZOMBIES = {
     normal: { hp: 200,  speed: 20 },
@@ -100,12 +110,18 @@
         if (p.type === 'sunflower') {
           p.t += dt;
           if (p.t >= 9) { p.t = 0; spawnSun(cellX(c) + rand(-10, 10), cellY(r) - 30, cellY(r) + 15, false); }
-        } else if (p.type === 'peashooter' || p.type === 'snowpea') {
+        } else if (SHOOTERS.includes(p.type)) {
           p.t = Math.min(1.4, p.t + dt);
           const cx = cellX(c);
+          if (p.queue > 0 && (p.queue -= dt) <= 0) peas.push({ row: r, x: cx + 28, snow: false });  // repeater's 2nd pea
           if (p.t >= 1.4 && zombies.some(z => z.row === r && z.x > cx - 10 && z.x < W)) {
             p.t = 0;
             peas.push({ row: r, x: cx + 28, snow: p.type === 'snowpea' });
+            if (p.type === 'repeater') p.queue = 0.15;
+            if (p.type === 'sunpea') {
+              sun += 10;
+              fx.push({ type: 'plus', x: cx, y: cellY(r) - 50, t: 0, life: 0.9 });
+            }
           }
         } else if (p.type === 'cherry') {
           p.t += dt;
@@ -242,8 +258,9 @@
     sun -= def.cost;
     cdLeft[selected] = def.cd;
     if (merge) {
-      plants[r][c] = { type: 'snowpea', hp: PLANTS.snowpea.hp, t: existing.type === 'peashooter' ? existing.t : 0, anim: existing.anim };
-      fx.push({ type: 'splat', x: cellX(c), y: cellY(r) - 10, t: 0, life: 0.5, snow: true });
+      const result = mergeResult(selected, existing);
+      plants[r][c] = { type: result, hp: PLANTS[result].hp, t: existing.type === 'peashooter' ? existing.t : 0, anim: existing.anim };
+      fx.push({ type: 'splat', x: cellX(c), y: cellY(r) - 10, t: 0, life: 0.5, snow: result === 'snowpea' });
     } else {
       plants[r][c] = { type: selected, hp: def.hp, t: selected === 'sunflower' ? 3 : 0, anim: 0 };
     }
@@ -284,9 +301,15 @@
       circle(cx - 5, cy - 21 + bob, 2, '#000'); circle(cx + 5, cy - 21 + bob, 2, '#000');
       ctx.beginPath(); ctx.arc(cx, cy - 15 + bob, 6, 0.2, Math.PI - 0.2);
       ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
-    } else if (type === 'peashooter' || type === 'snowpea') {
-      const snow = type === 'snowpea';
-      const body = snow ? '#7fd3f0' : '#4cb544', dark = snow ? '#4aa9cf' : '#2f8a2c';
+    } else if (type === 'peashooter' || type === 'snowpea' || type === 'repeater' || type === 'sunpea') {
+      const snow = type === 'snowpea', rep = type === 'repeater', sunp = type === 'sunpea';
+      const body = snow ? '#7fd3f0' : rep ? '#2f9a3a' : sunp ? '#9fd84a' : '#4cb544';
+      const dark = snow ? '#4aa9cf' : rep ? '#1d6b24' : sunp ? '#6a9a1f' : '#2f8a2c';
+      if (sunp) for (let i = 0; i < 8; i++) {   // sunflower petals behind the head
+        const a = (i / 8) * Math.PI * 2;
+        ellipse(cx + Math.cos(a) * 24, cy - 14 + bob + Math.sin(a) * 24, 9, 5, '#f7c52b', a);
+      }
+      if (rep) { ctx.fillStyle = dark; ctx.fillRect(cx + 6, cy - 8 + bob, 22, 10); ellipse(cx + 28, cy - 3 + bob, 4, 7, dark); ellipse(cx + 28, cy - 3 + bob, 2, 4, '#173a15'); }
       ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx - 3, cy - 5 + bob, 6, 38);
       ellipse(cx - 14, cy + 20, 14, 6, '#3c9a40', -0.4);
       ellipse(cx + 12, cy + 24, 10, 5, '#3c9a40', 0.4);
@@ -296,6 +319,8 @@
       circle(cx, cy - 14 + bob, 20, body, dark);
       circle(cx + 5, cy - 20 + bob, 5, '#fff'); circle(cx + 7, cy - 20 + bob, 2.4, '#000');
       ellipse(cx - 18, cy - 20 + bob, 9, 5, dark, -0.8);
+      if (rep) { ctx.strokeStyle = '#173a15'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx - 2, cy - 28 + bob); ctx.lineTo(cx + 12, cy - 24 + bob); ctx.stroke(); }
+      if (sunp) circle(cx - 8, cy - 8 + bob, 4, '#ffe45e');
     } else if (type === 'lettuce') {
       ellipse(cx, cy + 30, 24, 7, 'rgba(0,0,0,0.15)');
       const leaves = ['#b9dc8f', '#cfe9a8', '#dff3c2'];
@@ -309,8 +334,8 @@
       ctx.strokeStyle = '#4a6b2f'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(cx, cy + 9, 5, 0.2, Math.PI - 0.2); ctx.stroke();
       ctx.fillStyle = '#bfeaff'; ctx.fillRect(cx + 14, cy - 12, 3, 3); ctx.fillRect(cx - 18, cy - 4, 3, 3);
-    } else if (type === 'wallnut') {
-      const frac = p ? p.hp / PLANTS.wallnut.hp : 1;
+    } else if (type === 'wallnut' || type === 'peanut') {
+      const frac = p ? p.hp / PLANTS[type].hp : 1;
       ellipse(cx, cy + 4, 30, 38, '#c68a3c');
       ellipse(cx, cy + 4, 30, 38, 'rgba(0,0,0,0)');
       ctx.strokeStyle = '#7c5120'; ctx.lineWidth = 3;
@@ -318,6 +343,13 @@
       circle(cx - 10, cy - 6, 6, '#fff'); circle(cx + 10, cy - 6, 6, '#fff');
       circle(cx - 9, cy - 5, 2.5, '#000'); circle(cx + 11, cy - 5, 2.5, '#000');
       ctx.beginPath(); ctx.arc(cx, cy + 8, 9, 0.2, Math.PI - 0.2); ctx.stroke();
+      if (type === 'peanut') {   // pea cannon on the front, plus a leaf sprout on top
+        ctx.fillStyle = '#3fae3a'; ctx.strokeStyle = '#1d6b24'; ctx.lineWidth = 2;
+        ctx.fillRect(cx + 18, cy - 20, 26, 18); ctx.strokeRect(cx + 18, cy - 20, 26, 18);
+        ellipse(cx + 44, cy - 11, 5, 12, '#2f8a2c'); ellipse(cx + 44, cy - 11, 2.5, 7, '#173a15');
+        ellipse(cx - 6, cy - 40, 12, 5, '#3fae3a', -0.5); ellipse(cx + 8, cy - 40, 12, 5, '#3fae3a', 0.5);
+        ctx.strokeStyle = '#7c5120';
+      }
       if (frac < 0.66) { ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 22, cy - 16); ctx.lineTo(cx - 8, cy - 4); ctx.lineTo(cx - 14, cy + 6); ctx.stroke(); }
       if (frac < 0.33) { ctx.beginPath(); ctx.moveTo(cx + 20, cy + 22); ctx.lineTo(cx + 6, cy + 10); ctx.lineTo(cx + 12, cy - 2); ctx.stroke(); }
     } else if (type === 'cherry') {
@@ -476,6 +508,10 @@
         ctx.globalAlpha = 1;
       } else if (f.type === 'splat') {
         ctx.globalAlpha = 1 - k; circle(f.x, f.y, 6 + k * 8, f.snow ? '#bff0ff' : '#8de36b'); ctx.globalAlpha = 1;
+      } else if (f.type === 'plus') {
+        ctx.globalAlpha = 1 - k; ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#7a5a00'; ctx.lineWidth = 3;
+        ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center';
+        ctx.strokeText('+10', f.x, f.y - k * 30); ctx.fillText('+10', f.x, f.y - k * 30); ctx.globalAlpha = 1;
       } else if (f.type === 'text') {
         ctx.globalAlpha = Math.min(1, (f.life - f.t) * 1.5);
         ctx.fillStyle = '#d62828'; ctx.font = 'bold 32px system-ui'; ctx.textAlign = 'center';
