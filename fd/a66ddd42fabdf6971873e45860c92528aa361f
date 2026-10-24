@@ -1,0 +1,28 @@
+index.html
+  s_6a130fffb65bd6::t_dd1994849f3125 15
+game.js
+  s_6a130fffb65bd6::t_04a5993681f76a 60
+  s_6a130fffb65bd6::t_6c07e7027efcd9 17-22
+  s_6a130fffb65bd6::t_5aadf18e71a075 144-153,157
+  s_6a130fffb65bd6::t_9ca90ea429857d 299-311
+  s_6a130fffb65bd6::t_6ed7a23067f2c9 369-372
+  s_6a130fffb65bd6::t_afd56cf0a87767 12-13
+  s_6a130fffb65bd6::t_81fde4582162ac 463-465,467
+  s_6a130fffb65bd6::t_2ca9fa70eab6c1 236-239,244-249
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "fda66ddd42fabdf6971873e45860c92528aa361f",
+  "prompts": {},
+  "sessions": {
+    "s_6a130fffb65bd6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7535a1b9-996f-4836-91b9-fc5ec668c795",
+        "model": "claude-sonnet-5-5"
+      },
+      "human_author": "scott pederson <scpe@users.noreply.github.com>"
+    }
+  }
+}
