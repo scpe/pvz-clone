@@ -22,6 +22,9 @@ canvas {
   cursor: pointer;
 }
 .help { max-width: 900px; margin: 10px auto 0; font-size: 0.9rem; opacity: 0.85; }
+details.help { text-align: left; }
+details.help summary { cursor: pointer; text-align: center; }
+details.help p { margin: 8px 0 0; }
 kbd {
   background: #35482f;
   border-radius: 4px;

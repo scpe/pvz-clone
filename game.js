@@ -3,9 +3,22 @@
   const ctx = cv.getContext('2d');
 
   const COLS = 9, ROWS = 5, CW = 80, CH = 100, GX = 120, GY = 110, W = 900, H = 620;
-  const DURATION = 210;        // seconds until the last zombie has spawned
-  const FLAG_AT = 170;         // seconds when the big final wave arrives
-  const GARG_AT = 190;         // seconds when the Gargantuar shows up
+  // Three levels. `duration` is when the last zombie has spawned; spawn gaps shrink from
+  // spawnStart to spawnMin over the level; `mergeLevel` gates which merges are allowed
+  // (1 = none, 2 = a normal plant + a normal plant, 3 = everything incl. merged + normal).
+  const LEVELS = [
+    { duration: 120, flagAt: 100, flagCount: 4, firstSpawn: 20, spawnStart: 14, spawnMin: 8,
+      bucket: false, bucketFrom: 1, garg: false, gargAt: 0, mergeLevel: 1,
+      intro: ['No merging yet, and no bucketheads.', 'Keep the zombies out of your house!'] },
+    { duration: 170, flagAt: 135, flagCount: 6, firstSpawn: 15, spawnStart: 12, spawnMin: 5,
+      bucket: true, bucketFrom: 0.3, garg: false, gargAt: 0, mergeLevel: 2,
+      intro: ['Merging is unlocked: drop a plant on another plain plant.', 'Bucketheads and bigger waves are coming.'] },
+    { duration: 210, flagAt: 170, flagCount: 8, firstSpawn: 15, spawnStart: 12, spawnMin: 3.5,
+      bucket: true, bucketFrom: 0.45, garg: true, gargAt: 190, mergeLevel: 3,
+      intro: ['All merges unlocked, including merged plants.', 'A Gargantuar waits at the end of the level.'] },
+  ];
+  // the level a merge result needs before it can be made
+  const MERGE_LEVEL = { snowpea: 2, repeater: 2, peanut: 2, sunpea: 2, duoflower: 2, tallnut: 2, freezersalad: 2, threepeater: 3 };
 
   const PLANTS = {
     sunflower: { name: 'Sunflower', cost: 50,  cd: 5,  hp: 300 },
@@ -38,7 +51,10 @@
   };
   const NUTS = ['wallnut', 'tallnut'];   // the only plants a Gargantuar can't one-shot
   const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater'];
-  const mergeResult = (sel, existing) => existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
+  const mergeResult = (sel, existing) => {
+    const result = existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
+    return result && MERGE_LEVEL[result] <= cfg.mergeLevel ? result : undefined;
+  };
   const canMerge = (sel, existing) => !!mergeResult(sel, existing);
 
   const ZOMBIES = {
@@ -51,9 +67,13 @@
   const WALLNUT_SMASH_DMG = 1000;      // a wall-nut survives a few smashes; everything else dies in one
 
   let state, sun, plants, zombies, peas, suns, mowers, fx, cdLeft;
-  let selected, shovel, time, spawnTimer, skyTimer, flagDone, gargDone, mouse, last;
+  let selected, shovel, time, spawnTimer, skyTimer, flagDone, gargDone, waveQueue, mouse, last;
+  // ?level=2 / ?level=3 jumps straight to a level
+  let level = Math.min(LEVELS.length, Math.max(1, parseInt(new URLSearchParams(location.search).get('level'), 10) || 1)) - 1;
+  let cfg;
 
   function reset() {
+    cfg = LEVELS[level];
     state = 'menu';
     sun = 150;
     plants = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
@@ -62,7 +82,7 @@
     cdLeft = {};
     ORDER.forEach(k => (cdLeft[k] = 0));
     selected = null; shovel = false;
-    time = 0; spawnTimer = 15; skyTimer = 6; flagDone = false; gargDone = false;
+    time = 0; spawnTimer = cfg.firstSpawn; skyTimer = 6; flagDone = false; gargDone = false; waveQueue = [];
     mouse = { x: -1, y: -1 };
   }
 
@@ -72,11 +92,11 @@
 
   // ---------- spawning ----------
   function spawnZombie(row, forcedKind) {
-    const f = time / DURATION;
+    const f = time / cfg.duration;
     const roll = Math.random();
     let kind = forcedKind || 'normal';
     if (forcedKind) { /* keep it */ }
-    else if (f > 0.45 && roll < (f - 0.35) * 0.5) kind = 'bucket';
+    else if (cfg.bucket && f > cfg.bucketFrom && roll < (f - cfg.bucketFrom + 0.1) * 0.5) kind = 'bucket';
     else if (f > 0.15 && roll < 0.2 + f * 0.4) kind = 'cone';
     const z = ZOMBIES[kind];
     zombies.push({
@@ -97,16 +117,18 @@
 
     // zombie spawning
     spawnTimer -= dt;
-    if (time < DURATION && spawnTimer <= 0) {
+    if (time < cfg.duration && spawnTimer <= 0) {
       spawnZombie();
-      spawnTimer = Math.max(3.5, 12 - (time / DURATION) * 8.5) + rand(-1, 1);
+      spawnTimer = Math.max(cfg.spawnMin, cfg.spawnStart - (time / cfg.duration) * (cfg.spawnStart - cfg.spawnMin)) + rand(-1, 1);
     }
-    if (!flagDone && time >= FLAG_AT) {
+    if (!flagDone && time >= cfg.flagAt) {
       flagDone = true;
-      for (let i = 0; i < 8; i++) setTimeout(() => state === 'play' && spawnZombie(i % ROWS), i * 500);
+      for (let i = 0; i < cfg.flagCount; i++) waveQueue.push({ row: i % ROWS, t: i * 0.5 });
       fx.push({ type: 'text', text: 'A HUGE WAVE OF ZOMBIES IS APPROACHING!', t: 0, life: 4 });
     }
-    if (!gargDone && time >= GARG_AT) {
+    for (const q of waveQueue) if ((q.t -= dt) <= 0) spawnZombie(q.row);
+    waveQueue = waveQueue.filter(q => q.t > 0);
+    if (cfg.garg && !gargDone && time >= cfg.gargAt) {
       gargDone = true;
       spawnZombie(undefined, 'garg');
       fx.push({ type: 'text', text: 'A GARGANTUAR IS COMING!', t: 0, life: 4 });
@@ -252,7 +274,7 @@
     for (const f of fx) f.t += dt;
     fx = fx.filter(f => f.t < f.life);
 
-    if (time >= DURATION && zombies.length === 0 && state === 'play') state = 'won';
+    if (time >= cfg.duration && zombies.length === 0 && waveQueue.length === 0 && state === 'play') state = 'won';
   }
 
   // ---------- input ----------
@@ -279,7 +301,8 @@
     const p = canvasPos(e);
     mouse = p;
     if (state === 'menu') { state = 'play'; return; }
-    if (state === 'won' || state === 'lost') { reset(); return; }
+    if (state === 'won') { level = (level + 1) % LEVELS.length; reset(); return; }   // after the last level, back to level 1
+    if (state === 'lost') { reset(); return; }
     if (state === 'paused') { state = 'play'; return; }
 
     // suns first
@@ -586,14 +609,14 @@
     // progress bar
     const bx = 600, by = 38, bw = 280, bh = 18;
     ctx.fillStyle = '#2b1d10'; ctx.fillRect(bx, by, bw, bh);
-    const prog = Math.min(1, time / DURATION);
+    const prog = Math.min(1, time / cfg.duration);
     ctx.fillStyle = '#7bd34a'; ctx.fillRect(bx + 2, by + 2, (bw - 4) * prog, bh - 4);
     ctx.strokeStyle = '#e8d9b0'; ctx.lineWidth = 2; ctx.strokeRect(bx, by, bw, bh);
-    const fx0 = bx + (bw * FLAG_AT) / DURATION;
+    const fx0 = bx + (bw * cfg.flagAt) / cfg.duration;
     ctx.fillStyle = '#e53935'; ctx.fillRect(fx0, by - 10, 2, 12); ctx.fillRect(fx0, by - 10, 10, 6);
     circle(bx + 2 + (bw - 4) * prog, by + bh / 2, 7, '#9bbf86', '#4f6b3f');
     ctx.fillStyle = '#e8d9b0'; ctx.font = '12px system-ui'; ctx.textAlign = 'center';
-    ctx.fillText('Level progress', bx + bw / 2, by + 38);
+    ctx.fillText('Level ' + (level + 1) + ' of ' + LEVELS.length, bx + bw / 2, by + 38);
   }
 
   function drawGhost() {
@@ -668,9 +691,10 @@
     for (const s of suns) drawSun(s);
     drawHUD();
 
-    if (state === 'menu') drawOverlay('Plants vs. Zombies', ['Fan-made mini clone', 'Click anywhere to start', 'Survive the whole wave — keep zombies away from your house!'], '#9be564');
+    if (state === 'menu') drawOverlay('Level ' + (level + 1), [...cfg.intro, 'Click anywhere to start'], '#9be564');
     else if (state === 'paused') drawOverlay('Paused', ['Click or press P to resume'], '#ffd23f');
-    else if (state === 'won') drawOverlay('You survived!', ['The zombies didn\'t eat your brains.', 'Click to play again'], '#9be564');
+    else if (state === 'won' && level === LEVELS.length - 1) drawOverlay('You beat all 3 levels!', ['The zombies didn\'t eat your brains.', 'Click to play again from level 1'], '#9be564');
+    else if (state === 'won') drawOverlay('Level ' + (level + 1) + ' complete!', ['Click for level ' + (level + 2)], '#9be564');
     else if (state === 'lost') drawOverlay('THE ZOMBIES ATE YOUR BRAINS!', ['Click to try again'], '#ff5252');
   }
 
