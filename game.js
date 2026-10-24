@@ -17,6 +17,9 @@
     peanut:    { name: 'Pea-nut',   cost: 150, cd: 5,  hp: 1000 },   // a quarter of a wall-nut's health
     sunpea:    { name: 'Sun Pea',   cost: 150, cd: 5,  hp: 300 },
     threepeater: { name: 'Threepeater', cost: 300, cd: 5, hp: 300 },
+    duoflower: { name: 'Duo Flower', cost: 100, cd: 5, hp: 300 },
+    tallnut:   { name: 'Tall-nut',   cost: 100, cd: 5, hp: 8000 },   // twice a wall-nut
+    freezersalad: { name: 'Freezer Salad', cost: 150, cd: 5, hp: 300 },
     wallnut:   { name: 'Wall-nut',  cost: 50,  cd: 20, hp: 4000 },
     cherry:    { name: 'Cherry', cost: 150, cd: 30, hp: 300 },
   };
@@ -29,7 +32,11 @@
     'peashooter+wallnut': 'peanut',
     'peashooter+sunflower': 'sunpea',
     'peashooter+repeater': 'threepeater',
+    'sunflower+sunflower': 'duoflower',
+    'wallnut+wallnut': 'tallnut',
+    'lettuce+lettuce': 'freezersalad',
   };
+  const NUTS = ['wallnut', 'tallnut'];   // the only plants a Gargantuar can't one-shot
   const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater'];
   const mergeResult = (sel, existing) => existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
   const canMerge = (sel, existing) => !!mergeResult(sel, existing);
@@ -78,8 +85,8 @@
     });
   }
 
-  function spawnSun(x, y, ty, fromSky) {
-    suns.push({ x, y, ty, value: 25, life: 9, landed: false, fromSky });
+  function spawnSun(x, y, ty, fromSky, value = 25) {
+    suns.push({ x, y, ty, value, life: 9, landed: false, fromSky });
   }
 
   // ---------- update ----------
@@ -119,9 +126,12 @@
         if (!p) continue;
         p.anim += dt;
         if (p.hp <= 0) { plants[r][c] = null; continue; }
-        if (p.type === 'sunflower') {
+        if (p.type === 'sunflower' || p.type === 'duoflower') {
           p.t += dt;
-          if (p.t >= 9) { p.t = 0; spawnSun(cellX(c) + rand(-10, 10), cellY(r) - 30, cellY(r) + 15, false); }
+          if (p.t >= 9) {
+            p.t = 0;
+            spawnSun(cellX(c) + rand(-10, 10), cellY(r) - 30, cellY(r) + 15, false, p.type === 'duoflower' ? 50 : 25);
+          }
         } else if (SHOOTERS.includes(p.type)) {
           p.t = Math.min(1.4, p.t + dt);
           const cx = cellX(c);
@@ -180,10 +190,17 @@
       if (z.freeze > 0) {
         z.freeze -= dt;
         z.eating = false;
-      } else if (target && target.type === 'lettuce') {
-        // biting iceberg lettuce freezes the zombie solid and uses the lettuce up
+      } else if (target && (target.type === 'lettuce' || target.type === 'freezersalad')) {
+        // biting iceberg lettuce freezes the zombie solid and uses the lettuce up;
+        // a freezer salad freezes every zombie in the 3x3 around it, for twice as long
         target.hp = 0;
-        z.freeze = 4;
+        if (target.type === 'freezersalad') {
+          const tx = cellX(col);
+          for (const o of zombies) {
+            if (Math.abs(o.row - z.row) <= 1 && Math.abs(o.x - tx) < CW * 1.5) o.freeze = 8;
+          }
+          fx.push({ type: 'ice', x: tx, y: cellY(z.row), t: 0, life: 0.6 });
+        } else z.freeze = 4;
         fx.push({ type: 'splat', x: z.x, y: cellY(z.row) - 20, t: 0, life: 0.4, snow: true });
       } else if (target && z.kind === 'garg') {
         // winds up, then smashes: anything but a wall-nut dies in one hit
@@ -192,7 +209,7 @@
         z.atk = (z.atk || 0) + factor * dt;
         if (z.atk >= GARG_SMASH_EVERY) {
           z.atk = 0;
-          target.hp -= target.type === 'wallnut' ? WALLNUT_SMASH_DMG : 1e6;
+          target.hp -= NUTS.includes(target.type) ? WALLNUT_SMASH_DMG : 1e6;
           fx.push({ type: 'boom', x: cellX(col), y: cellY(z.row) + 20, t: 0, life: 0.25 });
         }
       } else if (target) {
@@ -372,9 +389,31 @@
         circle(3, -5, 4, '#fff'); circle(4.5, -5, 1.8, '#000');
         ctx.restore();
       }
-    } else if (type === 'lettuce') {
+    } else if (type === 'duoflower') {
+      for (const dx of [-17, 17]) {
+        ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx + dx - 3, cy - 6 + bob, 6, 38);
+        ellipse(cx + dx - (dx < 0 ? 10 : -10), cy + 22, 10, 4, '#3c9a40', dx < 0 ? -0.5 : 0.5);
+        for (let i = 0; i < 9; i++) {
+          const a = (i / 9) * Math.PI * 2;
+          ellipse(cx + dx + Math.cos(a) * 15, cy - 14 + bob + Math.sin(a) * 15, 8, 4.5, '#f7c52b', a);
+        }
+        circle(cx + dx, cy - 14 + bob, 11, '#7a4a1a', '#4a2c0e');
+        circle(cx + dx - 4, cy - 17 + bob, 1.7, '#000'); circle(cx + dx + 4, cy - 17 + bob, 1.7, '#000');
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(cx + dx, cy - 12 + bob, 4.5, 0.2, Math.PI - 0.2); ctx.stroke();
+      }
+    } else if (type === 'tallnut') {
+      const frac = p ? p.hp / PLANTS.tallnut.hp : 1;
+      ellipse(cx, cy, 26, 47, '#b87a32');
+      ctx.strokeStyle = '#7c5120'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(cx, cy, 26, 47, 0, 0, Math.PI * 2); ctx.stroke();
+      circle(cx - 9, cy - 16, 6, '#fff'); circle(cx + 9, cy - 16, 6, '#fff');
+      circle(cx - 8, cy - 15, 2.5, '#000'); circle(cx + 10, cy - 15, 2.5, '#000');
+      ctx.beginPath(); ctx.arc(cx, cy - 4, 8, 0.2, Math.PI - 0.2); ctx.stroke();
+      if (frac < 0.66) { ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 18, cy - 30); ctx.lineTo(cx - 6, cy - 16); ctx.lineTo(cx - 12, cy - 4); ctx.stroke(); }
+      if (frac < 0.33) { ctx.beginPath(); ctx.moveTo(cx + 16, cy + 34); ctx.lineTo(cx + 4, cy + 18); ctx.lineTo(cx + 10, cy + 6); ctx.stroke(); }
+    } else if (type === 'lettuce' || type === 'freezersalad') {
       ellipse(cx, cy + 30, 24, 7, 'rgba(0,0,0,0.15)');
-      const leaves = ['#b9dc8f', '#cfe9a8', '#dff3c2'];
+      const leaves = type === 'freezersalad' ? ['#9fd4ec', '#bde6f6', '#e0f6ff'] : ['#b9dc8f', '#cfe9a8', '#dff3c2'];
       for (let i = 0; i < 3; i++) {
         circle(cx + (i - 1) * 9, cy + 6 + Math.abs(i - 1) * 6 + bob * 0.3, 24 - i * 3, leaves[i], '#7fa856');
       }
@@ -385,6 +424,12 @@
       ctx.strokeStyle = '#4a6b2f'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(cx, cy + 9, 5, 0.2, Math.PI - 0.2); ctx.stroke();
       ctx.fillStyle = '#bfeaff'; ctx.fillRect(cx + 14, cy - 12, 3, 3); ctx.fillRect(cx - 18, cy - 4, 3, 3);
+      if (type === 'freezersalad') {   // extra frost sparkles + a little crown of ice
+        ctx.fillStyle = '#fff';
+        [[-20, -14], [22, -2], [0, -22], [-26, 12], [26, 14]].forEach(([dx, dy]) => ctx.fillRect(cx + dx, cy + dy, 4, 4));
+        ctx.fillStyle = '#7fd3f0';
+        ctx.beginPath(); ctx.moveTo(cx - 12, cy - 16); ctx.lineTo(cx - 6, cy - 30); ctx.lineTo(cx, cy - 16); ctx.lineTo(cx + 6, cy - 30); ctx.lineTo(cx + 12, cy - 16); ctx.closePath(); ctx.fill();
+      }
     } else if (type === 'wallnut' || type === 'peanut') {
       const frac = p ? p.hp / PLANTS[type].hp : 1;
       ellipse(cx, cy + 4, 30, 38, '#c68a3c');
@@ -472,6 +517,7 @@
 
   function drawSun(s) {
     ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(performance.now() / 1500);
+    if (s.value > 25) ctx.scale(1.3, 1.3);   // big suns are worth more
     if (s.landed && s.life < 3 && Math.floor(s.life * 6) % 2) ctx.globalAlpha = 0.45;
     ctx.fillStyle = '#ffd23f';
     for (let i = 0; i < 10; i++) {
@@ -573,6 +619,9 @@
         ctx.globalAlpha = 1;
       } else if (f.type === 'splat') {
         ctx.globalAlpha = 1 - k; circle(f.x, f.y, 6 + k * 8, f.snow ? '#bff0ff' : '#8de36b'); ctx.globalAlpha = 1;
+      } else if (f.type === 'ice') {
+        ctx.globalAlpha = (1 - k) * 0.5; ctx.fillStyle = '#9fe0ff';
+        ctx.fillRect(f.x - CW * 1.5, f.y - CH * 1.5, CW * 3, CH * 3); ctx.globalAlpha = 1;
       } else if (f.type === 'plus') {
         ctx.globalAlpha = 1 - k; ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#7a5a00'; ctx.lineWidth = 3;
         ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center';
