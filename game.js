@@ -8,13 +8,13 @@
   // (1 = none, 2 = a normal plant + a normal plant, 3 = everything incl. merged + normal).
   const LEVELS = [
     { duration: 120, flagAt: 100, flagCount: 4, firstSpawn: 20, spawnStart: 14, spawnMin: 8,
-      bucket: false, bucketFrom: 1, garg: false, gargAt: 0, mergeLevel: 1,
+      bucket: false, bucketFrom: 1, extra: 0, garg: false, gargAt: 0, mergeLevel: 1,
       intro: ['No merging yet, and no bucketheads.', 'Keep the zombies out of your house!'] },
     { duration: 170, flagAt: 135, flagCount: 6, firstSpawn: 15, spawnStart: 12, spawnMin: 5,
-      bucket: true, bucketFrom: 0.3, garg: false, gargAt: 0, mergeLevel: 2,
-      intro: ['Merging is unlocked: drop a plant on another plain plant.', 'Bucketheads and bigger waves are coming.'] },
+      bucket: true, bucketFrom: 0.3, extra: 0.22, garg: false, gargAt: 0, mergeLevel: 2,
+      intro: ['Merging is unlocked: drop a plant on another plain plant.', 'Bucketheads, screen doors, pole vaulters and bigger waves are coming.'] },
     { duration: 210, flagAt: 170, flagCount: 8, firstSpawn: 15, spawnStart: 12, spawnMin: 3.5,
-      bucket: true, bucketFrom: 0.45, garg: true, gargAt: 190, mergeLevel: 3,
+      bucket: true, bucketFrom: 0.45, extra: 0.25, garg: true, gargAt: 190, mergeLevel: 3,
       intro: ['All merges unlocked, including merged plants.', 'A Gargantuar waits at the end of the level.'] },
   ];
   // the level a merge result needs before it can be made
@@ -67,6 +67,11 @@
     cone:   { hp: 700,  speed: 14 },
     bucket: { hp: 1600, speed: 14 },
     garg:   { hp: 3200, speed: 11 },   // twice a buckethead
+    // screen door: the door (between a cone and a bucket) soaks up pea damage; lobbed cabbages and
+    // explosions go over/around it and hit the body, which has a normal zombie's health
+    door:   { hp: 260,  speed: 14, door: 1100 },
+    // pole vaulter: sprints until it meets a plant, vaults over it once, then walks like a normal zombie
+    vault:  { hp: 340,  speed: 14, runSpeed: 45 },
   };
   const GARG_SMASH_EVERY = 1.4;        // seconds between club swings
   const WALLNUT_SMASH_DMG = 1000;      // a wall-nut survives a few smashes; everything else dies in one
@@ -102,11 +107,13 @@
     let kind = forcedKind || 'normal';
     if (forcedKind) { /* keep it */ }
     else if (cfg.bucket && f > cfg.bucketFrom && roll < (f - cfg.bucketFrom + 0.1) * 0.5) kind = 'bucket';
+    else if (cfg.extra && f > 0.1 && Math.random() < cfg.extra) kind = Math.random() < 0.5 ? 'door' : 'vault';
     else if (f > 0.15 && roll < 0.2 + f * 0.4) kind = 'cone';
     const z = ZOMBIES[kind];
     zombies.push({
       kind, row: row ?? Math.floor(Math.random() * ROWS),
       x: W + 20, hp: z.hp, maxhp: z.hp, slow: 0, freeze: 0, anim: Math.random() * 6,
+      door: z.door || 0, vs: kind === 'vault' ? 'run' : undefined, vault: null,
     });
   }
 
@@ -184,7 +191,8 @@
           p.t += dt;
           p.armed = p.t >= MINE_ARM_TIME;
           // goes off when a zombie steps onto its tile
-          if (p.armed && zombies.some(z => z.row === r && Math.floor((z.x - 20 - GX) / CW) === c)) {
+          // (a pole vaulter that hasn't vaulted yet hops right over it without setting it off)
+          if (p.armed && zombies.some(z => z.row === r && Math.floor((z.x - 20 - GX) / CW) === c && !(z.kind === 'vault' && z.vs !== 'walk'))) {
             const cx = cellX(c);
             for (const z of zombies) if (z.row === r && Math.abs(z.x - cx) < CW) z.hp -= MINE_DAMAGE;
             fx.push({ type: 'boom', x: cx, y: cellY(r), t: 0, life: 0.45, size: 0.6 });
@@ -221,7 +229,10 @@
       p.x += 330 * dt;
       const z = zombies.find(z => z.row === p.row && Math.abs(z.x - p.x) < 22 && z.hp > 0);
       if (z) {
-        z.hp -= 20;
+        if (z.door > 0) {   // a screen door soaks the peas; leftover damage spills onto the body
+          z.door -= 20;
+          if (z.door < 0) { z.hp += z.door; z.door = 0; }
+        } else z.hp -= 20;
         if (p.snow) z.slow = 4;
         p.dead = true;
         fx.push({ type: 'splat', x: p.x, y: cellY(p.row) - 12, t: 0, life: 0.2, snow: p.snow });
@@ -251,9 +262,19 @@
       const factor = z.slow > 0 ? 0.5 : 1;
       const col = Math.floor((z.x - 20 - GX) / CW);
       const target = col >= 0 && col < COLS ? plants[z.row][col] : null;
-      if (z.freeze > 0) {
+      if (z.vault) {
+        // airborne: glides over the plant to the tile behind it (even if it gets frozen mid-air)
+        z.vault.t += dt;
+        z.x = z.vault.x0 + (z.vault.x1 - z.vault.x0) * Math.min(1, z.vault.t / z.vault.dur);
+        z.eating = false;
+        if (z.vault.t >= z.vault.dur) { z.vault = null; z.vs = 'walk'; }
+      } else if (z.freeze > 0) {
         z.freeze -= dt;
         z.eating = false;
+      } else if (target && z.kind === 'vault' && z.vs === 'run') {
+        // hits the first plant in its way: vaults it, unless it's a tall-nut (pole snaps, then it eats)
+        if (target.type === 'tallnut') z.vs = 'walk';
+        else z.vault = { t: 0, dur: 0.8, x0: z.x, x1: GX + col * CW - 10, px: cellX(col) };
       } else if (target && (target.type === 'lettuce' || target.type === 'freezersalad')) {
         // biting iceberg lettuce freezes the zombie solid and uses the lettuce up;
         // a freezer salad freezes every zombie in the 3x3 around it, for twice as long
@@ -284,7 +305,8 @@
         z.anim += dt * 4;
         z.eating = false;
         z.atk = 0;
-        z.x -= ZOMBIES[z.kind].speed * factor * dt;
+        const spd = z.vs === 'run' ? ZOMBIES[z.kind].runSpeed : ZOMBIES[z.kind].speed;
+        z.x -= spd * factor * dt;
       }
       // lawn mower / house
       if (z.x < GX - 15) {
@@ -561,7 +583,8 @@
   }
 
   function drawZombie(z) {
-    const cx = z.x, cy = cellY(z.row) + 8;
+    const lift = z.vault ? Math.sin(Math.PI * Math.min(1, z.vault.t / z.vault.dur)) * 75 : 0;   // vaulter's jump height
+    const cx = z.x, cy = cellY(z.row) + 8 - lift;
     const sw = Math.sin(z.anim) * 6;
     const garg = z.kind === 'garg';
     ctx.save();
@@ -572,7 +595,7 @@
     ctx.fillRect(cx - 12, cy + 18, 9, 30 + sw * (z.eating ? 0 : 0.6));
     ctx.fillRect(cx + 3, cy + 18, 9, 30 - sw * (z.eating ? 0 : 0.6));
     // body
-    ctx.fillStyle = garg ? '#8a4b3a' : '#6b6b8f'; ctx.fillRect(cx - 16, cy - 22, 32, 44);
+    ctx.fillStyle = garg ? '#8a4b3a' : z.kind === 'vault' ? '#c9a227' : '#6b6b8f'; ctx.fillRect(cx - 16, cy - 22, 32, 44);
     ctx.fillStyle = '#c0392b'; ctx.fillRect(cx - 3, cy - 20, 6, 24);   // tie
     // arms (reach forward / left)
     ctx.fillStyle = '#8fae78';
@@ -595,6 +618,28 @@
       ctx.moveTo(cx - 17, cy - 40); ctx.lineTo(cx + 17, cy - 40); ctx.lineTo(cx + 13, cy - 72); ctx.lineTo(cx - 13, cy - 72); ctx.closePath(); ctx.fill();
       ctx.strokeStyle = '#5c6670'; ctx.stroke();
       ctx.fillStyle = '#5c6670'; ctx.fillRect(cx - 19, cy - 44, 38, 5);
+    }
+    if (z.kind === 'vault') {
+      ctx.fillStyle = '#e8e8e8'; ctx.fillRect(cx - 17, cy - 44, 34, 5);              // headband
+      if (z.vault) {   // pole planted in the ground while he swings over it
+        ctx.strokeStyle = '#a0764a'; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(z.vault.px, cellY(z.row) + 56); ctx.lineTo(z.vault.px + 6, cellY(z.row) + 56 - 120); ctx.stroke();
+      } else if (z.vs === 'run') {   // pole carried at his side until he vaults
+        ctx.strokeStyle = '#a0764a'; ctx.lineWidth = 5;
+        ctx.beginPath(); ctx.moveTo(cx - 62, cy + 46); ctx.lineTo(cx + 26, cy - 62); ctx.stroke();
+      }
+    }
+    if (z.door > 0) {   // screen door held out front, getting ragged as it takes damage
+      const frac = z.door / ZOMBIES.door.door, dx = cx - 60, dy = cy - 58;
+      ctx.fillStyle = '#b9c2c9'; ctx.fillRect(dx, dy, 24, 112);
+      ctx.strokeStyle = '#6b757d'; ctx.lineWidth = 2; ctx.strokeRect(dx, dy, 24, 112);
+      ctx.lineWidth = 1;
+      for (let i = 1; i < 7; i++) { ctx.beginPath(); ctx.moveTo(dx, dy + i * 16); ctx.lineTo(dx + 24, dy + i * 16); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(dx + 12, dy); ctx.lineTo(dx + 12, dy + 112); ctx.stroke();
+      ctx.fillStyle = '#2a2a2a';
+      if (frac < 0.66) ctx.fillRect(dx + 3, dy + 22, 10, 16);
+      if (frac < 0.33) { ctx.fillRect(dx + 10, dy + 60, 12, 18); ctx.fillRect(dx + 2, dy + 90, 9, 14); }
+      ctx.fillStyle = '#4a4a4a'; ctx.fillRect(dx + 20, dy + 50, 6, 10);               // handle
     }
     if (garg) {   // club: raised behind while winding up, swung forward on the smash
       const a = Math.min(1, (z.atk || 0) / GARG_SMASH_EVERY);
