@@ -702,10 +702,33 @@
   function frame(now) {
     const dt = Math.min(0.05, (now - last) / 1000 || 0);
     last = now;
-    if (state === 'play') update(dt);
+    // 2x speed runs two normal-sized steps per frame so fast peas can't skip over zombies
+    if (state === 'play') for (let i = 0; i < speed; i++) update(dt);
     draw();
+    syncButtons();
     requestAnimationFrame(frame);
   }
+
+  // ---------- control buttons ----------
+  let speed = 1;
+  const btnPause = document.getElementById('btn-pause');
+  const btnSpeed = document.getElementById('btn-speed');
+  const btnRestart = document.getElementById('btn-restart');
+
+  function syncButtons() {
+    const pauseText = state === 'paused' ? 'Resume' : 'Pause';
+    if (btnPause.textContent !== pauseText) btnPause.textContent = pauseText;
+    btnPause.disabled = state !== 'play' && state !== 'paused';
+    const speedText = speed === 2 ? '2× Speed: ON' : '2× Speed';
+    if (btnSpeed.textContent !== speedText) btnSpeed.textContent = speedText;
+    btnSpeed.classList.toggle('on', speed === 2);
+  }
+
+  btnPause.addEventListener('click', () => {
+    if (state === 'play') state = 'paused'; else if (state === 'paused') state = 'play';
+  });
+  btnSpeed.addEventListener('click', () => { speed = speed === 1 ? 2 : 1; });
+  btnRestart.addEventListener('click', () => { reset(); state = 'play'; });   // same level, straight back in
 
   reset();
   requestAnimationFrame(t => { last = t; frame(t); });

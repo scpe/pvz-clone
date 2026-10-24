@@ -21,6 +21,20 @@ canvas {
   touch-action: manipulation;
   cursor: pointer;
 }
+.controls { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+.controls button {
+  font: inherit;
+  font-weight: 600;
+  color: #e8f0d8;
+  background: #35482f;
+  border: 2px solid #5c7a4a;
+  border-radius: 8px;
+  padding: 8px 16px;
+  cursor: pointer;
+}
+.controls button:hover:not(:disabled) { background: #44603b; }
+.controls button.on { background: #7bd34a; color: #1d2b1a; border-color: #a6e87d; }
+.controls button:disabled { opacity: 0.45; cursor: default; }
 .help { max-width: 900px; margin: 10px auto 0; font-size: 0.9rem; opacity: 0.85; }
 details.help { text-align: left; }
 details.help summary { cursor: pointer; text-align: center; }
