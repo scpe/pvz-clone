@@ -58,7 +58,7 @@
   const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater'];
   const mergeResult = (sel, existing) => {
     const result = existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
-    return result && MERGE_LEVEL[result] <= cfg.mergeLevel ? result : undefined;
+    return result && MERGE_LEVEL[result] <= (god ? LEVELS.length : cfg.mergeLevel) ? result : undefined;   // god mode: every merge, any level
   };
   const canMerge = (sel, existing) => !!mergeResult(sel, existing);
 
@@ -126,7 +126,7 @@
   // ---------- update ----------
   function update(dt) {
     time += dt;
-    if (god) sun = SUN_MAX;
+    if (god) { sun = SUN_MAX; ORDER.forEach(k => (cdLeft[k] = 0)); }
 
     for (const k of ORDER) cdLeft[k] = Math.max(0, cdLeft[k] - dt);
 
@@ -401,7 +401,7 @@
     const def = PLANTS[selected];
     if (sun < def.cost || cdLeft[selected] > 0) return;
     sun -= def.cost;
-    cdLeft[selected] = def.cd;
+    cdLeft[selected] = god ? 0 : def.cd;
     if (merge) {
       const result = mergeResult(selected, existing);
       plants[r][c] = { type: result, hp: PLANTS[result].hp, t: existing.type === 'peashooter' ? existing.t : 0, anim: existing.anim };
