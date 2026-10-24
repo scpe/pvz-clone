@@ -18,13 +18,13 @@
       intro: ['All merges unlocked, including merged plants.', 'A Gargantuar waits at the end of the level.'] },
   ];
   // the level a merge result needs before it can be made
-  const MERGE_LEVEL = { frostpult: 2, bigspud: 2, snowpea: 2, repeater: 2, peanut: 2, sunpea: 2, duoflower: 2, tallnut: 2, freezersalad: 2, threepeater: 3 };
+  const MERGE_LEVEL = { melonpult: 2, frostpult: 2, bigspud: 2, snowpea: 2, repeater: 2, peanut: 2, sunpea: 2, duoflower: 2, tallnut: 2, freezersalad: 2, threepeater: 3 };
 
   const PLANTS = {
     sunflower: { name: 'Sunflower', cost: 50,  cd: 5,  hp: 300 },
     potato:    { name: 'Potato',    cost: 25,  cd: 15, hp: 300 },     // Potato Mine
     cabbage:   { name: 'Cabbage',   cost: 100, cd: 5,  hp: 300 },     // Cabbage-pult
-    berry:     { name: 'Berry',     cost: 75,  cd: 15, hp: 3000 },    // Berry Barrier: shoots, and soaks up hits like a wall-nut
+    berry:     { name: 'Berry',     cost: 75,  cd: 15, hp: 3000 },    // Berry Barrier: wall-nut tough; thorns hurt whatever is eating it
     peashooter: { name: 'Peashooter', cost: 100, cd: 5,  hp: 300 },
     lettuce:   { name: 'Iceberg', cost: 75, cd: 12, hp: 300 },
     // merge-only plants (see MERGES); cost/cd are unused since they can't be bought
@@ -37,6 +37,7 @@
     tallnut:   { name: 'Tall-nut',   cost: 100, cd: 5, hp: 8000 },   // twice a wall-nut
     freezersalad: { name: 'Freezer Salad', cost: 150, cd: 5, hp: 300 },
     frostpult: { name: 'Frost-pult', cost: 175, cd: 5, hp: 300 },
+    melonpult: { name: 'Melon-pult', cost: 175, cd: 5, hp: 300 },
     bigspud:   { name: 'Big Spud',   cost: 50,  cd: 5, hp: 300 },
     wallnut:   { name: 'Wall-nut',  cost: 50,  cd: 20, hp: 4000 },
     cherry:    { name: 'Cherry', cost: 150, cd: 30, hp: 300 },
@@ -45,6 +46,8 @@
   const MINE_ARM_TIME = 10;     // seconds before a potato mine can blow
   const MINE_DAMAGE = 900;      // kills normal (260) and cone (700), leaves a bucket (1600) alive
   const CABBAGE_EVERY = 2.0, CABBAGE_DAMAGE = 40, CABBAGE_FLIGHT = 0.7;
+  const MELON_EVERY = 3.0, MELON_DAMAGE = 90, MELON_SPLASH = 45;   // melon-pult: slower, harder, splashes the lane
+  const THORNS_DPS = 50;        // damage per second to a zombie that's chewing on a berry barrier
 
   // merging is symmetric: dropping either one on the other makes a snow pea
   const MERGES = {
@@ -58,9 +61,10 @@
     'lettuce+lettuce': 'freezersalad',
     'cabbage+lettuce': 'frostpult',
     'potato+potato': 'bigspud',
+    'berry+cabbage': 'melonpult',
   };
   const NUTS = ['wallnut', 'tallnut', 'berry'];   // the only plants a Gargantuar can't one-shot
-  const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater', 'berry'];
+  const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater'];
   const mergeResult = (sel, existing) => {
     const result = existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
     return result && MERGE_LEVEL[result] <= (god ? LEVELS.length : cfg.mergeLevel) ? result : undefined;   // god mode: every merge, any level
@@ -206,16 +210,17 @@
             fx.push({ type: 'boom', x: cx, y: cellY(r), t: 0, life: 0.45, size: big ? 1 : 0.6 });
             plants[r][c] = null;
           }
-        } else if (p.type === 'cabbage' || p.type === 'frostpult') {
-          p.t = Math.min(CABBAGE_EVERY, p.t + dt);
+        } else if (p.type === 'cabbage' || p.type === 'frostpult' || p.type === 'melonpult') {
+          const every = p.type === 'melonpult' ? MELON_EVERY : CABBAGE_EVERY;
+          p.t = Math.min(every, p.t + dt);
           p.kick = Math.max(0, (p.kick || 0) - dt);
           const cx = cellX(c);
-          if (p.t >= CABBAGE_EVERY) {
+          if (p.t >= every) {
             const ahead = zombies.filter(z => z.row === r && z.x > cx - 10 && z.x < W);
             if (ahead.length) {
               const tz = ahead.reduce((a, b) => (b.x < a.x ? b : a));   // nearest zombie in the lane
               p.t = 0; p.kick = 0.25;
-              cabbages.push({ row: r, x0: cx + 20, x: cx + 20, tz, lx: tz.x, t: 0, frost: p.type === 'frostpult' });
+              cabbages.push({ row: r, x0: cx + 20, x: cx + 20, tz, lx: tz.x, t: 0, frost: p.type === 'frostpult', melon: p.type === 'melonpult' });
             }
           }
         } else if (p.type === 'cherry') {
@@ -257,7 +262,8 @@
       if (cb.t >= 1) {
         cb.dead = true;
         if (cb.tz.hp > 0) {
-          cb.tz.hp -= CABBAGE_DAMAGE;
+          cb.tz.hp -= cb.melon ? MELON_DAMAGE : CABBAGE_DAMAGE;
+          if (cb.melon) for (const z of zombies) if (z !== cb.tz && z.row === cb.row && Math.abs(z.x - cb.x) < CW * 1.2) z.hp -= MELON_SPLASH;
           if (cb.frost) for (const z of zombies) if (z.row === cb.row && Math.abs(z.x - cb.x) < CW * 1.2) z.slow = 4;   // frozen lettuce chills everyone near the impact
           fx.push({ type: 'splat', x: cb.x, y: cellY(cb.row) - 10, t: 0, life: 0.25, snow: false });
         }
@@ -300,6 +306,7 @@
         // winds up, then smashes: anything but a wall-nut dies in one hit
         z.anim += dt * 4;
         z.eating = true;
+        if (target.type === 'berry') z.hp -= THORNS_DPS * dt;
         z.atk = (z.atk || 0) + factor * dt;
         if (z.atk >= GARG_SMASH_EVERY) {
           z.atk = 0;
@@ -309,6 +316,7 @@
       } else if (target) {
         z.anim += dt * 4;
         target.hp -= 100 * factor * dt;
+        if (target.type === 'berry') z.hp -= THORNS_DPS * dt;
         z.eating = true;
       } else {
         z.anim += dt * 4;
@@ -440,18 +448,23 @@
   function drawPlant(type, cx, cy, p) {
     const t = p ? p.anim : 0;
     const bob = Math.sin(t * 3) * 2;
-    if (type === 'sunflower') {
-      ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx - 3, cy - 10 + bob, 6, 42);
-      ellipse(cx - 12, cy + 18, 12, 5, '#3c9a40', -0.5);
-      ellipse(cx + 12, cy + 18, 12, 5, '#3c9a40', 0.5);
-      for (let i = 0; i < 10; i++) {
-        const a = (i / 10) * Math.PI * 2;
-        ellipse(cx + Math.cos(a) * 20, cy - 18 + bob + Math.sin(a) * 20, 10, 6, '#f7c52b', a);
+    if (type === 'sunflower' || type === 'duoflower') {
+      for (const dx of type === 'duoflower' ? [-17, 17] : [0]) {   // a duo flower is two smaller sunflowers
+        const s = dx ? 0.75 : 1;
+        ctx.save(); ctx.translate(cx + dx, cy + 32); ctx.scale(s, s); ctx.translate(-cx, -(cy + 32));
+        ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx - 3, cy - 10 + bob, 6, 42);
+        ellipse(cx - 12, cy + 18, 12, 5, '#3c9a40', -0.5);
+        ellipse(cx + 12, cy + 18, 12, 5, '#3c9a40', 0.5);
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * Math.PI * 2;
+          ellipse(cx + Math.cos(a) * 20, cy - 18 + bob + Math.sin(a) * 20, 10, 6, '#f7c52b', a);
+        }
+        circle(cx, cy - 18 + bob, 15, '#7a4a1a', '#4a2c0e');
+        circle(cx - 5, cy - 21 + bob, 2, '#000'); circle(cx + 5, cy - 21 + bob, 2, '#000');
+        ctx.beginPath(); ctx.arc(cx, cy - 15 + bob, 6, 0.2, Math.PI - 0.2);
+        ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.restore();
       }
-      circle(cx, cy - 18 + bob, 15, '#7a4a1a', '#4a2c0e');
-      circle(cx - 5, cy - 21 + bob, 2, '#000'); circle(cx + 5, cy - 21 + bob, 2, '#000');
-      ctx.beginPath(); ctx.arc(cx, cy - 15 + bob, 6, 0.2, Math.PI - 0.2);
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
     } else if (type === 'peashooter' || type === 'snowpea' || type === 'repeater' || type === 'sunpea') {
       const snow = type === 'snowpea', rep = type === 'repeater', sunp = type === 'sunpea';
       const body = snow ? '#7fd3f0' : rep ? '#2f9a3a' : sunp ? '#9fd84a' : '#4cb544';
@@ -508,11 +521,13 @@
         circle(cx, cy - 22, 5, Math.floor(t * 4) % 2 ? '#ff3030' : '#8a1010');
       }
       ctx.restore();
-    } else if (type === 'cabbage' || type === 'frostpult') {
-      const kick = p ? Math.max(0, p.kick || 0) / 0.25 : 0, fr = type === 'frostpult';
+    } else if (type === 'cabbage' || type === 'frostpult' || type === 'melonpult') {
+      const kick = p ? Math.max(0, p.kick || 0) / 0.25 : 0;
+      // body fill, outline, ammo: green cabbage / icy frost-pult / dark-green melon-pult
+      const pal = type === 'frostpult' ? ['#8fd3f0', '#4aa9cf', '#bfeaff'] : type === 'melonpult' ? ['#59a64a', '#2c6a2a', '#3f9a3a'] : ['#4cb544', '#2f8a2c', '#6fdc4a'];
       ellipse(cx, cy + 30, 24, 7, 'rgba(0,0,0,0.15)');
-      ellipse(cx - 4, cy + 14, 24, 20, fr ? '#8fd3f0' : '#4cb544');             // cabbage body (icy blue for the frost-pult)
-      ctx.strokeStyle = fr ? '#4aa9cf' : '#2f8a2c'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(cx - 4, cy + 14, 24, 20, 0, 0, Math.PI * 2); ctx.stroke();
+      ellipse(cx - 4, cy + 14, 24, 20, pal[0]);
+      ctx.strokeStyle = pal[1]; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(cx - 4, cy + 14, 24, 20, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.beginPath(); ctx.arc(cx - 4, cy + 14, 14, 3.5, 5.9); ctx.stroke();
       circle(cx - 12, cy + 10, 4.5, '#fff'); circle(cx + 2, cy + 10, 4.5, '#fff');
       circle(cx - 11, cy + 11, 2, '#000'); circle(cx + 3, cy + 11, 2, '#000');
@@ -521,20 +536,8 @@
       ctx.save(); ctx.translate(cx + 6, cy + 4); ctx.rotate(-1.0 + kick * 1.1);
       ctx.fillStyle = '#8a5a2c'; ctx.fillRect(0, -4, 34, 7);
       ctx.fillStyle = '#6b4a2a'; ctx.fillRect(26, -12, 16, 14);
-      if (kick < 0.4) circle(34, -16, 9, fr ? '#bfeaff' : '#6fdc4a', fr ? '#4aa9cf' : '#2f8a2c');   // ammo waiting in the cup
+      if (kick < 0.4) circle(34, -16, type === 'melonpult' ? 12 : 9, pal[2], pal[1]);   // ammo waiting in the cup
       ctx.restore();
-    } else if (type === 'duoflower') {
-      for (const dx of [-17, 17]) {
-        ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx + dx - 3, cy - 6 + bob, 6, 38);
-        ellipse(cx + dx - (dx < 0 ? 10 : -10), cy + 22, 10, 4, '#3c9a40', dx < 0 ? -0.5 : 0.5);
-        for (let i = 0; i < 9; i++) {
-          const a = (i / 9) * Math.PI * 2;
-          ellipse(cx + dx + Math.cos(a) * 15, cy - 14 + bob + Math.sin(a) * 15, 8, 4.5, '#f7c52b', a);
-        }
-        circle(cx + dx, cy - 14 + bob, 11, '#7a4a1a', '#4a2c0e');
-        circle(cx + dx - 4, cy - 17 + bob, 1.7, '#000'); circle(cx + dx + 4, cy - 17 + bob, 1.7, '#000');
-        ctx.strokeStyle = '#000'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.arc(cx + dx, cy - 12 + bob, 4.5, 0.2, Math.PI - 0.2); ctx.stroke();
-      }
     } else if (type === 'lettuce' || type === 'freezersalad') {
       ellipse(cx, cy + 30, 24, 7, 'rgba(0,0,0,0.15)');
       const leaves = type === 'freezersalad' ? ['#9fd4ec', '#bde6f6', '#e0f6ff'] : ['#b9dc8f', '#cfe9a8', '#dff3c2'];
@@ -577,7 +580,8 @@
     } else if (type === 'berry') {   // berry bush with a leaf cannon; tough like a wall-nut
       ellipse(cx, cy + 30, 28, 7, 'rgba(0,0,0,0.15)');
       ellipse(cx, cy + 6, 31, 34, '#2f7d32', 0);
-      ctx.fillStyle = '#1f5a24'; ctx.fillRect(cx + 22, cy - 6, 16, 10);
+      ctx.strokeStyle = '#1f5a24'; ctx.lineWidth = 3;   // thorns all round
+      for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2, c = Math.cos(a), s = Math.sin(a); ctx.beginPath(); ctx.moveTo(cx + c * 28, cy + 6 + s * 31); ctx.lineTo(cx + c * 38, cy + 6 + s * 41); ctx.stroke(); }
       [[-17, -10], [15, -16], [-4, 18], [19, 12], [-21, 14], [2, -24]].forEach(([dx, dy]) => { circle(cx + dx, cy + 4 + dy, 8, '#7b3fa0', '#4a2468'); circle(cx + dx - 2, cy + 2 + dy, 2, '#d9b8ee'); });
       circle(cx - 7, cy + 2, 5, '#fff'); circle(cx + 7, cy + 2, 5, '#fff'); circle(cx - 6, cy + 3, 2.2, '#000'); circle(cx + 8, cy + 3, 2.2, '#000');
       if (p && p.hp < PLANTS.berry.hp * 0.5) ellipse(cx, cy + 6, 31, 34, 'rgba(0,0,0,0.25)');   // scorched when low
@@ -824,7 +828,7 @@
     for (const cb of cabbages) {   // arcing cabbages, with a shadow on the ground
       const gy = cellY(cb.row) + 10, lift = Math.sin(Math.PI * Math.min(1, cb.t)) * 110;
       ellipse(cb.x, gy, 9, 4, 'rgba(0,0,0,0.25)');
-      circle(cb.x, gy - 26 - lift, 9, cb.frost ? '#bfeaff' : '#6fdc4a', cb.frost ? '#4aa9cf' : '#2f8a2c');
+      circle(cb.x, gy - 26 - lift, cb.melon ? 13 : 9, cb.frost ? '#bfeaff' : cb.melon ? '#3f9a3a' : '#6fdc4a', cb.frost ? '#4aa9cf' : cb.melon ? '#1f5a24' : '#2f8a2c');
       ctx.strokeStyle = '#2f8a2c'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cb.x, gy - 26 - lift, 5, 3.6, 5.8); ctx.stroke();
     }
     drawFx();
