@@ -1,0 +1,33 @@
+index.html
+  s_6a130fffb65bd6::t_9b7dcfefb77339 31-32
+  s_6a130fffb65bd6::t_6c73d4363f6961 33
+game.js
+  s_6a130fffb65bd6::t_ac18690931f466 30-35
+  s_6a130fffb65bd6::t_df6ddc4d1c8457 582-584,586,588-589
+  s_6a130fffb65bd6::t_0f5cfdce691733 780-781
+  s_6a130fffb65bd6::t_7ad0441e3f9d74 84
+  s_6a130fffb65bd6::t_3995119dfa6813 217,220,222-223,225-226
+  s_6a130fffb65bd6::t_303a7385822e2f 444-447
+  s_6a130fffb65bd6::t_25d2b9468bc27a 57-58
+  s_6a130fffb65bd6::t_0e52f14e7c5f5d 18-19
+  s_6a130fffb65bd6::t_bc86cec33f7cd8 64
+  s_6a130fffb65bd6::t_14d9dc18c8a378 73-74
+  s_6a130fffb65bd6::t_c9622561411027 6
+  s_6a130fffb65bd6::t_5fa966fdcde0ab 166,170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "880c884a641076e363ddfbaf7e13b7b5f3edee5b",
+  "prompts": {},
+  "sessions": {
+    "s_6a130fffb65bd6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "7535a1b9-996f-4836-91b9-fc5ec668c795",
+        "model": "unknown"
+      },
+      "human_author": "scott pederson <scpe@users.noreply.github.com>"
+    }
+  }
+}
