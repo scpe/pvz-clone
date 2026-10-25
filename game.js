@@ -3,9 +3,7 @@
   const ctx = cv.getContext('2d');
 
   const COLS = 9, ROWS = 5, CW = 80, CH = 100, GX = 120, GY = 110, W = 900, H = 620;
-  // Three levels. `duration` is when the last zombie has spawned; spawn gaps shrink from
-  // spawnStart to spawnMin over the level; `mergeLevel` gates which merges are allowed
-  // (1 = none, 2 = a normal plant + a normal plant, 3 = everything incl. merged + normal).
+  // Three levels: `duration` = when the last zombie spawns; `mergeLevel`: 1 none, 2 normal+normal, 3 all.
   const LEVELS = [
     { duration: 120, flagAt: 100, flagCount: 4, firstSpawn: 20, spawnStart: 14, spawnMin: 8,
       bucket: false, bucketFrom: 1, extra: 0, garg: false, gargAt: 0, mergeLevel: 1,
@@ -17,8 +15,8 @@
       bucket: true, bucketFrom: 0.45, extra: 0.25, garg: true, gargAt: 190, mergeLevel: 3,
       intro: ['All merges unlocked, including merged plants.', 'A Gargantuar waits at the end of the level.'] },
   ];
-  // the level a merge result needs before it can be made
-  const MERGE_LEVEL = { melonpult: 2, frostpult: 2, bigspud: 2, snowpea: 2, repeater: 2, peanut: 2, sunpea: 2, duoflower: 2, tallnut: 2, freezersalad: 2, threepeater: 3 };
+  const LATE_MERGES = ['threepeater', 'tripleflower'];   // merged + normal plant: level 3 (every other merge is level 2)
+  const SUN_FLOWERS = { sunflower: 25, duoflower: 50, tripleflower: 75 };   // sun per drop
 
   const PLANTS = {
     sunflower: { name: 'Sunflower', cost: 50,  cd: 5,  hp: 300 },
@@ -27,20 +25,14 @@
     berry:     { name: 'Berry',     cost: 75,  cd: 15, hp: 3000 },    // Berry Barrier: wall-nut tough; thorns hurt whatever is eating it
     peashooter: { name: 'Peashooter', cost: 100, cd: 5,  hp: 300 },
     lettuce:   { name: 'Iceberg', cost: 75, cd: 12, hp: 300 },
-    // merge-only plants (see MERGES); cost/cd are unused since they can't be bought
-    snowpea:   { name: 'Snow Pea',  cost: 175, cd: 5,  hp: 300 },
-    repeater:  { name: 'Repeater',  cost: 200, cd: 5,  hp: 300 },
-    peanut:    { name: 'Pea-nut',   cost: 150, cd: 5,  hp: 1000 },   // a quarter of a wall-nut's health
-    sunpea:    { name: 'Sun Pea',   cost: 150, cd: 5,  hp: 300 },
-    threepeater: { name: 'Threepeater', cost: 300, cd: 5, hp: 300 },
-    duoflower: { name: 'Duo Flower', cost: 100, cd: 5, hp: 300 },
-    tallnut:   { name: 'Tall-nut',   cost: 100, cd: 5, hp: 8000 },   // twice a wall-nut
-    freezersalad: { name: 'Freezer Salad', cost: 150, cd: 5, hp: 300 },
-    frostpult: { name: 'Frost-pult', cost: 175, cd: 5, hp: 300 },
-    melonpult: { name: 'Melon-pult', cost: 175, cd: 5, hp: 300 },
-    bigspud:   { name: 'Big Spud',   cost: 50,  cd: 5, hp: 300 },
     wallnut:   { name: 'Wall-nut',  cost: 50,  cd: 20, hp: 4000 },
     cherry:    { name: 'Cherry', cost: 150, cd: 30, hp: 300 },
+    // merge-only plants (see MERGES): they can't be bought, so only their health matters
+    snowpea: { hp: 300 }, repeater: { hp: 300 }, sunpea: { hp: 300 }, threepeater: { hp: 300 }, duoflower: { hp: 300 },
+    tripleflower: { hp: 300 }, freezersalad: { hp: 300 }, cherrylettuce: { hp: 300 }, frostpult: { hp: 300 },
+    melonpult: { hp: 300 }, bigspud: { hp: 300 },
+    peanut: { hp: 1000 },   // a quarter of a wall-nut's health
+    tallnut: { hp: 8000 },  // twice a wall-nut
   };
   const ORDER = ['sunflower', 'peashooter', 'lettuce', 'wallnut', 'cherry', 'potato', 'cabbage', 'berry'];
   const MINE_ARM_TIME = 10;     // seconds before a potato mine can blow
@@ -62,12 +54,14 @@
     'cabbage+lettuce': 'frostpult',
     'potato+potato': 'bigspud',
     'berry+cabbage': 'melonpult',
+    'cherry+lettuce': 'cherrylettuce',
+    'duoflower+sunflower': 'tripleflower',
   };
   const NUTS = ['wallnut', 'tallnut', 'berry'];   // the only plants a Gargantuar can't one-shot
   const SHOOTERS = ['peashooter', 'snowpea', 'repeater', 'peanut', 'sunpea', 'threepeater'];
   const mergeResult = (sel, existing) => {
     const result = existing ? MERGES[[sel, existing.type].sort().join('+')] : undefined;
-    return result && MERGE_LEVEL[result] <= (god ? LEVELS.length : cfg.mergeLevel) ? result : undefined;   // god mode: every merge, any level
+    return result && (LATE_MERGES.includes(result) ? 3 : 2) <= (god ? 3 : cfg.mergeLevel) ? result : undefined;   // god mode: every merge, any level
   };
   const canMerge = (sel, existing) => !!mergeResult(sel, existing);
 
@@ -76,11 +70,8 @@
     cone:   { hp: 700,  speed: 14 },
     bucket: { hp: 1600, speed: 14 },
     garg:   { hp: 3200, speed: 11 },   // twice a buckethead
-    // screen door: the door (between a cone and a bucket) soaks up pea damage; lobbed cabbages and
-    // explosions go over/around it and hit the body, which has a normal zombie's health
-    door:   { hp: 260,  speed: 14, door: 1100 },
-    // pole vaulter: sprints until it meets a plant, vaults over it once, then walks like a normal zombie
-    vault:  { hp: 340,  speed: 14, runSpeed: 45 },
+    door:   { hp: 260,  speed: 14, door: 1100 },    // the door soaks up peas; lobs and explosions hit the body
+    vault:  { hp: 340,  speed: 14, runSpeed: 45 },  // sprints, vaults the first plant, then walks
   };
   const GARG_SMASH_EVERY = 1.4;        // seconds between club swings
   const WALLNUT_SMASH_DMG = 1000;      // a wall-nut survives a few smashes; everything else dies in one
@@ -90,7 +81,7 @@
   // ?level=2 / ?level=3 jumps straight to a level
   let level = Math.min(LEVELS.length, Math.max(1, parseInt(new URLSearchParams(location.search).get('level'), 10) || 1)) - 1;
   let cfg;
-  let god = false;              // god mode: sun stays maxed and zombies that reach the house are wiped out instead of ending the game
+  let god = false;              // max sun, no cooldowns, all merges, can't lose
   const SUN_MAX = 9990;
 
   function reset() {
@@ -172,11 +163,11 @@
         if (!p) continue;
         p.anim += dt;
         if (p.hp <= 0) { plants[r][c] = null; continue; }
-        if (p.type === 'sunflower' || p.type === 'duoflower') {
+        if (SUN_FLOWERS[p.type]) {
           p.t += dt;
           if (p.t >= 9) {
             p.t = 0;
-            spawnSun(cellX(c) + rand(-10, 10), cellY(r) - 30, cellY(r) + 15, false, p.type === 'duoflower' ? 50 : 25);
+            spawnSun(cellX(c) + rand(-10, 10), cellY(r) - 30, cellY(r) + 15, false, SUN_FLOWERS[p.type]);
           }
         } else if (SHOOTERS.includes(p.type)) {
           p.t = Math.min(1.4, p.t + dt);
@@ -223,14 +214,16 @@
               cabbages.push({ row: r, x0: cx + 20, x: cx + 20, tz, lx: tz.x, t: 0, frost: p.type === 'frostpult', melon: p.type === 'melonpult' });
             }
           }
-        } else if (p.type === 'cherry') {
+        } else if (p.type === 'cherry' || p.type === 'cherrylettuce') {
           p.t += dt;
           if (p.t >= 0.9) {
-            const cx = cellX(c);
+            const cx = cellX(c), cl = p.type === 'cherrylettuce';
             for (const z of zombies) {
-              if (Math.abs(z.row - r) <= 1 && Math.abs(z.x - cx) < CW * 1.6) z.hp -= 1800;
+              if (cl) z.freeze = 6;   // cherry lettuce: a flash-freeze of every zombie on the lawn
+              else if (Math.abs(z.row - r) <= 1 && Math.abs(z.x - cx) < CW * 1.6) z.hp -= 1800;
             }
-            fx.push({ type: 'boom', x: cx, y: cellY(r), t: 0, life: 0.5 });
+            fx.push(cl ? { type: 'ice', x: GX + COLS * CW / 2, y: GY + ROWS * CH / 2, w: COLS * CW, h: ROWS * CH, t: 0, life: 0.8 }
+                       : { type: 'boom', x: cx, y: cellY(r), t: 0, life: 0.5 });
             plants[r][c] = null;
           }
         }
@@ -448,9 +441,10 @@
   function drawPlant(type, cx, cy, p) {
     const t = p ? p.anim : 0;
     const bob = Math.sin(t * 3) * 2;
-    if (type === 'sunflower' || type === 'duoflower') {
-      for (const dx of type === 'duoflower' ? [-17, 17] : [0]) {   // a duo flower is two smaller sunflowers
-        const s = dx ? 0.75 : 1;
+    if (SUN_FLOWERS[type]) {
+      const xs = { duoflower: [-17, 17], tripleflower: [-25, 0, 25] }[type] || [0];   // duo / triple flowers are 2 / 3 smaller sunflowers
+      for (const dx of xs) {
+        const s = [0, 1, 0.75, 0.6][xs.length];
         ctx.save(); ctx.translate(cx + dx, cy + 32); ctx.scale(s, s); ctx.translate(-cx, -(cy + 32));
         ctx.fillStyle = '#2f7d32'; ctx.fillRect(cx - 3, cy - 10 + bob, 6, 42);
         ellipse(cx - 12, cy + 18, 12, 5, '#3c9a40', -0.5);
@@ -585,13 +579,14 @@
       [[-17, -10], [15, -16], [-4, 18], [19, 12], [-21, 14], [2, -24]].forEach(([dx, dy]) => { circle(cx + dx, cy + 4 + dy, 8, '#7b3fa0', '#4a2468'); circle(cx + dx - 2, cy + 2 + dy, 2, '#d9b8ee'); });
       circle(cx - 7, cy + 2, 5, '#fff'); circle(cx + 7, cy + 2, 5, '#fff'); circle(cx - 6, cy + 3, 2.2, '#000'); circle(cx + 8, cy + 3, 2.2, '#000');
       if (p && p.hp < PLANTS.berry.hp * 0.5) ellipse(cx, cy + 6, 31, 34, 'rgba(0,0,0,0.25)');   // scorched when low
-    } else if (type === 'cherry') {
-      const s = p ? 1 + Math.min(p.t / 0.9, 1) * 0.35 : 1;
+    } else if (type === 'cherry' || type === 'cherrylettuce') {
+      const s = p ? 1 + Math.min(p.t / 0.9, 1) * 0.35 : 1, ice = type === 'cherrylettuce';
+      const flash = p && p.t > 0.45 && Math.floor(p.t * 12) % 2, fill = ice ? (flash ? '#e4f7ff' : '#7fd3f0') : (flash ? '#ff7070' : '#c8102e');
       ctx.save(); ctx.translate(cx, cy + 6); ctx.scale(s, s);
-      ctx.strokeStyle = '#2f7d32'; ctx.lineWidth = 4;
+      ctx.strokeStyle = ice ? '#b9dc8f' : '#2f7d32'; ctx.lineWidth = 4;   // the icy one has a pale lettuce-green stem
       ctx.beginPath(); ctx.moveTo(-14, 0); ctx.quadraticCurveTo(-4, -30, 6, -34); ctx.moveTo(14, 0); ctx.quadraticCurveTo(10, -26, 6, -34); ctx.stroke();
-      circle(-15, 8, 17, p && p.t > 0.45 && Math.floor(p.t * 12) % 2 ? '#ff7070' : '#c8102e', '#7d0a1d');
-      circle(15, 8, 17, p && p.t > 0.45 && Math.floor(p.t * 12) % 2 ? '#ff7070' : '#c8102e', '#7d0a1d');
+      circle(-15, 8, 17, fill, ice ? '#2a7fa8' : '#7d0a1d');
+      circle(15, 8, 17, fill, ice ? '#2a7fa8' : '#7d0a1d');
       circle(-19, 3, 4, '#fff'); circle(11, 3, 4, '#fff'); circle(-18, 4, 1.8, '#000'); circle(12, 4, 1.8, '#000');
       ctx.restore();
     }
@@ -782,7 +777,8 @@
         ctx.globalAlpha = 1 - k; circle(f.x, f.y, 6 + k * 8, f.snow ? '#bff0ff' : '#8de36b'); ctx.globalAlpha = 1;
       } else if (f.type === 'ice') {
         ctx.globalAlpha = (1 - k) * 0.5; ctx.fillStyle = '#9fe0ff';
-        ctx.fillRect(f.x - CW * 1.5, f.y - CH * 1.5, CW * 3, CH * 3); ctx.globalAlpha = 1;
+        const w = f.w || CW * 3, h = f.h || CH * 3;   // default 3x3 (freezer salad); cherry lettuce covers the whole lawn
+        ctx.fillRect(f.x - w / 2, f.y - h / 2, w, h); ctx.globalAlpha = 1;
       } else if (f.type === 'plus') {
         ctx.globalAlpha = 1 - k; ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#7a5a00'; ctx.lineWidth = 3;
         ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center';
