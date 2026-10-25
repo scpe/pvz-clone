@@ -41,7 +41,6 @@
   const MELON_EVERY = 3.0, MELON_DAMAGE = 90, MELON_SPLASH = 45;   // melon-pult: slower, harder, splashes the lane
   const THORNS_DPS = 50;        // damage per second to a zombie that's chewing on a berry barrier
 
-  // merging is symmetric: dropping either one on the other makes a snow pea
   const MERGES = {
     'lettuce+peashooter': 'snowpea',
     'peashooter+peashooter': 'repeater',
@@ -117,6 +116,12 @@
       x: W + 20, hp: z.hp, maxhp: z.hp, slow: 0, freeze: 0, anim: Math.random() * 6,
       door: z.door || 0, vs: kind === 'vault' ? 'run' : undefined, vault: null,
     });
+  }
+
+  // cherry lettuce, clicked or eaten: flash-freezes every zombie on the lawn
+  function freezeAll() {
+    zombies.forEach(z => (z.freeze = 6));
+    fx.push({ type: 'ice', x: GX + COLS * CW / 2, y: GY + ROWS * CH / 2, w: COLS * CW, h: ROWS * CH, t: 0, life: 0.8 });
   }
 
   function spawnSun(x, y, ty, fromSky, value = 25) {
@@ -214,16 +219,14 @@
               cabbages.push({ row: r, x0: cx + 20, x: cx + 20, tz, lx: tz.x, t: 0, frost: p.type === 'frostpult', melon: p.type === 'melonpult' });
             }
           }
-        } else if (p.type === 'cherry' || p.type === 'cherrylettuce') {
+        } else if (p.type === 'cherry') {
           p.t += dt;
           if (p.t >= 0.9) {
-            const cx = cellX(c), cl = p.type === 'cherrylettuce';
+            const cx = cellX(c);
             for (const z of zombies) {
-              if (cl) z.freeze = 6;   // cherry lettuce: a flash-freeze of every zombie on the lawn
-              else if (Math.abs(z.row - r) <= 1 && Math.abs(z.x - cx) < CW * 1.6) z.hp -= 1800;
+              if (Math.abs(z.row - r) <= 1 && Math.abs(z.x - cx) < CW * 1.6) z.hp -= 1800;
             }
-            fx.push(cl ? { type: 'ice', x: GX + COLS * CW / 2, y: GY + ROWS * CH / 2, w: COLS * CW, h: ROWS * CH, t: 0, life: 0.8 }
-                       : { type: 'boom', x: cx, y: cellY(r), t: 0, life: 0.5 });
+            fx.push({ type: 'boom', x: cx, y: cellY(r), t: 0, life: 0.5 });
             plants[r][c] = null;
           }
         }
@@ -283,7 +286,7 @@
         // hits the first plant in its way: vaults it, unless it's a tall-nut (pole snaps, then it eats)
         if (target.type === 'tallnut') z.vs = 'walk';
         else z.vault = { t: 0, dur: 0.8, x0: z.x, x1: GX + col * CW - 10, px: cellX(col) };
-      } else if (target && (target.type === 'lettuce' || target.type === 'freezersalad')) {
+      } else if (target && (target.type === 'lettuce' || target.type === 'freezersalad' || target.type === 'cherrylettuce')) {
         // biting iceberg lettuce freezes the zombie solid and uses the lettuce up;
         // a freezer salad freezes every zombie in the 3x3 around it, for twice as long
         target.hp = 0;
@@ -293,7 +296,8 @@
             if (Math.abs(o.row - z.row) <= 1 && Math.abs(o.x - tx) < CW * 1.5) o.freeze = 8;
           }
           fx.push({ type: 'ice', x: tx, y: cellY(z.row), t: 0, life: 0.6 });
-        } else z.freeze = 4;
+        } else if (target.type === 'cherrylettuce') freezeAll();
+        else z.freeze = 4;
         fx.push({ type: 'splat', x: z.x, y: cellY(z.row) - 20, t: 0, life: 0.4, snow: true });
       } else if (target && z.kind === 'garg') {
         // winds up, then smashes: anything but a wall-nut dies in one hit
@@ -394,6 +398,7 @@
     const c = Math.floor((p.x - GX) / CW), r = Math.floor((p.y - GY) / CH);
     if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return;
     if (shovel) { plants[r][c] = null; shovel = false; return; }
+    if (!selected && plants[r][c] && plants[r][c].type === 'cherrylettuce') { plants[r][c] = null; freezeAll(); return; }
     if (!selected && plants[r][c] && plants[r][c].type === 'threepeater') {
       // click toggles between triple-shot-in-one-lane and one-pea-in-each-of-three-lanes
       plants[r][c].spread = !plants[r][c].spread;
@@ -581,9 +586,9 @@
       if (p && p.hp < PLANTS.berry.hp * 0.5) ellipse(cx, cy + 6, 31, 34, 'rgba(0,0,0,0.25)');   // scorched when low
     } else if (type === 'cherry' || type === 'cherrylettuce') {
       const s = p ? 1 + Math.min(p.t / 0.9, 1) * 0.35 : 1, ice = type === 'cherrylettuce';
-      const flash = p && p.t > 0.45 && Math.floor(p.t * 12) % 2, fill = ice ? (flash ? '#e4f7ff' : '#7fd3f0') : (flash ? '#ff7070' : '#c8102e');
+      const flash = p && p.t > 0.45 && Math.floor(p.t * 12) % 2, fill = ice ? '#7fd3f0' : flash ? '#ff7070' : '#c8102e';
       ctx.save(); ctx.translate(cx, cy + 6); ctx.scale(s, s);
-      ctx.strokeStyle = ice ? '#b9dc8f' : '#2f7d32'; ctx.lineWidth = 4;   // the icy one has a pale lettuce-green stem
+      ctx.strokeStyle = ice ? '#b9dc8f' : '#2f7d32'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(-14, 0); ctx.quadraticCurveTo(-4, -30, 6, -34); ctx.moveTo(14, 0); ctx.quadraticCurveTo(10, -26, 6, -34); ctx.stroke();
       circle(-15, 8, 17, fill, ice ? '#2a7fa8' : '#7d0a1d');
       circle(15, 8, 17, fill, ice ? '#2a7fa8' : '#7d0a1d');
@@ -777,7 +782,7 @@
         ctx.globalAlpha = 1 - k; circle(f.x, f.y, 6 + k * 8, f.snow ? '#bff0ff' : '#8de36b'); ctx.globalAlpha = 1;
       } else if (f.type === 'ice') {
         ctx.globalAlpha = (1 - k) * 0.5; ctx.fillStyle = '#9fe0ff';
-        const w = f.w || CW * 3, h = f.h || CH * 3;   // default 3x3 (freezer salad); cherry lettuce covers the whole lawn
+        const w = f.w || CW * 3, h = f.h || CH * 3;   // default 3x3; the cherry lettuce passes the whole lawn
         ctx.fillRect(f.x - w / 2, f.y - h / 2, w, h); ctx.globalAlpha = 1;
       } else if (f.type === 'plus') {
         ctx.globalAlpha = 1 - k; ctx.fillStyle = '#ffd23f'; ctx.strokeStyle = '#7a5a00'; ctx.lineWidth = 3;
