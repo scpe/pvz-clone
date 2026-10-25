@@ -860,15 +860,15 @@
   const btnSpeed = document.getElementById('btn-speed');
   const btnRestart = document.getElementById('btn-restart');
   const btnGod = document.getElementById('btn-god');
-  btnGod.addEventListener('click', () => { god = !god; if (god) sun = SUN_MAX; });
+  btnGod.addEventListener('click', () => { god = !god; if (god) sun = SUN_MAX; else if (speed === 4) speed = 2; });
 
   function syncButtons() {
     const pauseText = state === 'paused' ? 'Resume' : 'Pause';
     if (btnPause.textContent !== pauseText) btnPause.textContent = pauseText;
     btnPause.disabled = state !== 'play' && state !== 'paused';
-    const speedText = speed === 2 ? '2× Speed: ON' : '2× Speed';
+    const speedText = speed > 1 ? speed + '× Speed: ON' : god ? '2×/4× Speed' : '2× Speed';
     if (btnSpeed.textContent !== speedText) btnSpeed.textContent = speedText;
-    btnSpeed.classList.toggle('on', speed === 2);
+    btnSpeed.classList.toggle('on', speed > 1);
     const godText = god ? 'God mode: ON' : 'God mode';
     if (btnGod.textContent !== godText) btnGod.textContent = godText;
     btnGod.classList.toggle('on', god);
@@ -877,7 +877,7 @@
   btnPause.addEventListener('click', () => {
     if (state === 'play') state = 'paused'; else if (state === 'paused') state = 'play';
   });
-  btnSpeed.addEventListener('click', () => { speed = speed === 1 ? 2 : 1; });
+  btnSpeed.addEventListener('click', () => { speed = speed === 1 ? 2 : speed === 2 && god ? 4 : 1; });   // 4x only exists in god mode
   btnRestart.addEventListener('click', () => { reset(); state = 'play'; });   // same level, straight back in
 
   reset();
